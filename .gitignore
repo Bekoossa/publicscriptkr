@@ -3,5 +3,5 @@ node_modules/
 .env.local
 .tunnel.log
 cloudflared.exe
-uploads/*
 *.log
+

@@ -114,6 +114,10 @@ function loadDB() {
 function saveDB() {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+    const seedPath = path.join(__dirname, 'lib', 'seed.json');
+    if (fs.existsSync(path.dirname(seedPath))) {
+      fs.writeFileSync(seedPath, JSON.stringify(db, null, 2), 'utf-8');
+    }
   } catch (err) {
     console.error('Error saving db.json:', err);
   }

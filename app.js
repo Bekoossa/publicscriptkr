@@ -45,8 +45,8 @@ window.DEFAULT_AVATARS = DEFAULT_AVATARS;
 
 function getCardCover(script) {
   if (!script) return PRESET_COVERS['cyber-hub'];
-  if (script.coverImage && (script.coverImage.startsWith('data:image') || script.coverImage.startsWith('http'))) {
-    return script.coverImage;
+  if (script.coverImage && (script.coverImage.startsWith('data:image') || script.coverImage.startsWith('http') || script.coverImage.startsWith('/uploads/') || script.coverImage.startsWith('uploads/'))) {
+    return script.coverImage.startsWith('uploads/') ? '/' + script.coverImage : script.coverImage;
   }
   if (script.presetCover && PRESET_COVERS[script.presetCover]) {
     return PRESET_COVERS[script.presetCover];
@@ -61,7 +61,9 @@ function getCardCover(script) {
 
 function getAvatarSrc(src) {
   if (!src) return DEFAULT_AVATARS[0];
-  if (src.startsWith('data:image') || src.startsWith('http')) return src;
+  if (src.startsWith('data:image') || src.startsWith('http') || src.startsWith('/uploads/') || src.startsWith('uploads/')) {
+    return src.startsWith('uploads/') ? '/' + src : src;
+  }
   return DEFAULT_AVATARS[0];
 }
 
