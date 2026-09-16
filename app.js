@@ -37,6 +37,31 @@ const DEFAULT_AVATARS = [
   'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=150&auto=format&fit=crop&q=80'
 ];
 
+window.PRESET_COVERS = PRESET_COVERS;
+window.DEFAULT_AVATARS = DEFAULT_AVATARS;
+
+function getCardCover(script) {
+  if (!script) return PRESET_COVERS['cyber-hub'];
+  if (script.coverImage && (script.coverImage.startsWith('data:image') || script.coverImage.startsWith('http'))) {
+    return script.coverImage;
+  }
+  if (script.presetCover && PRESET_COVERS[script.presetCover]) {
+    return PRESET_COVERS[script.presetCover];
+  }
+  if (script.extension === 'txt') return PRESET_COVERS['dark-config'];
+  if (script.category === 'roblox') return PRESET_COVERS['neon-executor'];
+  if (script.category === 'utilities' || script.category === 'bot') return PRESET_COVERS['esp-radar'];
+  const hash = Math.abs((script.id || script.title || '').split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0));
+  const keys = ['neon-executor', 'cyber-hub', 'esp-radar', 'dark-config'];
+  return PRESET_COVERS[keys[hash % keys.length]] || PRESET_COVERS['cyber-hub'];
+}
+
+function getAvatarSrc(src) {
+  if (!src) return DEFAULT_AVATARS[0];
+  if (src.startsWith('data:image') || src.startsWith('http')) return src;
+  return DEFAULT_AVATARS[0];
+}
+
 // ============================================================================
 // API HELPER
 // ============================================================================
@@ -193,7 +218,11 @@ function renderUserNav(user) {
   if (user) {
     guestWrap.classList.add('hidden');
     userPill.classList.remove('hidden');
-    document.getElementById('navUserAvatar').src = user.avatar || DEFAULT_AVATARS[0];
+    const navAvatarEl = document.getElementById('navUserAvatar');
+    if (navAvatarEl) {
+      navAvatarEl.src = getAvatarSrc(user.avatar);
+      navAvatarEl.onerror = function() { this.src = DEFAULT_AVATARS[0]; };
+    }
     document.getElementById('navUserName').textContent = user.username;
     
     const badgeEl = document.getElementById('navUserBadge');
@@ -466,7 +495,8 @@ async function loadScriptsFeed() {
       card.className = 'script-card';
       card.dataset.id = script.id;
 
-      const coverSrc = script.coverImage || (PRESET_COVERS[script.presetCover] || PRESET_COVERS['cyber-hub']);
+      const coverSrc = getCardCover(script);
+      const avatarSrc = getAvatarSrc(script.authorAvatar);
       const statusBadgeHtml = renderCardStatusBadge(script.status);
 
       const tagsHtml = (script.tags || []).slice(0, 3).map(tag => 
@@ -475,7 +505,7 @@ async function loadScriptsFeed() {
 
       card.innerHTML = `
         <div class="script-card-thumb-wrap">
-          <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy">
+          <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
           ${statusBadgeHtml}
           <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
           <button class="script-thumb-quick-copy" title="Быстро скопировать код" data-action="quick-copy" data-id="${script.id}">
@@ -486,7 +516,7 @@ async function loadScriptsFeed() {
         <div class="script-card-body">
           <div class="script-card-author-row">
             <div class="card-author clickable-author" data-author-id="${script.authorId || ''}" title="Перейти в профиль ${escapeHtml(script.author)}">
-              <img src="${script.authorAvatar || DEFAULT_AVATARS[0]}" alt="${escapeHtml(script.author)}" class="card-author-avatar clickable-author-avatar" data-author-id="${script.authorId || ''}">
+              <img src="${avatarSrc}" alt="${escapeHtml(script.author)}" class="card-author-avatar clickable-author-avatar" data-author-id="${script.authorId || ''}" onerror="this.onerror=null; this.src='${DEFAULT_AVATARS[0]}';">
               <span class="card-author-name" data-author-id="${script.authorId || ''}">${escapeHtml(script.author)}</span>
             </div>
             <span class="card-post-date">${formatRelativeTime(script.createdAt)}</span>
@@ -580,7 +610,8 @@ async function openScriptDetail(scriptId) {
     document.getElementById('detailTitle').textContent = script.title;
     
     const authorAvatarEl = document.getElementById('detailAuthorAvatar');
-    authorAvatarEl.src = script.authorAvatar || DEFAULT_AVATARS[0];
+    authorAvatarEl.src = getAvatarSrc(script.authorAvatar);
+    authorAvatarEl.onerror = function() { this.src = DEFAULT_AVATARS[0]; };
     authorAvatarEl.dataset.authorId = script.authorId || '';
     authorAvatarEl.classList.add('clickable-author-avatar');
     authorAvatarEl.title = `Открыть профиль ${script.author}`;
@@ -679,14 +710,14 @@ async function openScriptDetail(scriptId) {
     });
 
     // Cover image
-    const coverSrc = script.coverImage || (PRESET_COVERS[script.presetCover] || null);
+    const coverSrc = getCardCover(script);
     const coverTabBtn = document.getElementById('tabDetailCoverBtn');
-    if (coverSrc) {
-      document.getElementById('detailCoverImage').src = coverSrc;
-      if (coverTabBtn) coverTabBtn.classList.remove('hidden');
-    } else {
-      if (coverTabBtn) coverTabBtn.classList.add('hidden');
+    const coverImgEl = document.getElementById('detailCoverImage');
+    if (coverImgEl) {
+      coverImgEl.src = coverSrc;
+      coverImgEl.onerror = function() { this.src = PRESET_COVERS['cyber-hub']; };
     }
+    if (coverTabBtn) coverTabBtn.classList.remove('hidden');
 
     // Description & tags
     document.getElementById('detailDescriptionText').textContent = script.description;
@@ -1988,13 +2019,14 @@ function renderPublicAuthorScripts(scripts) {
     const card = document.createElement('div');
     card.className = 'script-card';
 
-    const coverSrc = script.coverImage || (PRESET_COVERS[script.presetCover] || PRESET_COVERS['cyber-hub']);
+    const coverSrc = getCardCover(script);
+    const avatarSrc = getAvatarSrc(script.authorAvatar);
     const statusBadgeHtml = renderCardStatusBadge(script.status);
     const tagsHtml = (script.tags || []).slice(0, 3).map(tag => `<span class="tag-pill">#${escapeHtml(tag)}</span>`).join('');
 
     card.innerHTML = `
       <div class="script-card-thumb-wrap">
-        <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy">
+        <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
         ${statusBadgeHtml}
         <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
         <button class="script-thumb-quick-copy" title="Быстро скопировать код" data-action="quick-copy" data-id="${script.id}">
@@ -2005,7 +2037,7 @@ function renderPublicAuthorScripts(scripts) {
       <div class="script-card-body">
         <div class="script-card-author-row">
           <div class="card-author">
-            <img src="${script.authorAvatar || DEFAULT_AVATARS[0]}" alt="${escapeHtml(script.author)}" class="card-author-avatar">
+            <img src="${avatarSrc}" alt="${escapeHtml(script.author)}" class="card-author-avatar" onerror="this.onerror=null; this.src='${DEFAULT_AVATARS[0]}';">
             <span class="card-author-name">${escapeHtml(script.author)}</span>
           </div>
           <span class="card-post-date">${formatRelativeTime(script.createdAt)}</span>
