@@ -4,6 +4,4 @@ node_modules/
 .tunnel.log
 cloudflared.exe
 uploads/*
-!uploads/.gitkeep
-data/
 *.log
