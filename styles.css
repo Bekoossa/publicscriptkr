@@ -2898,6 +2898,9 @@ body::before {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .reveal { opacity: 1; transform: none; }
+}
+
 /* =========================================================
    KERRYRBQ ADMIN HUD DEBUG & ERROR CONSOLE
    ========================================================= */

@@ -571,23 +571,19 @@ async function checkAuthSession() {
     try {
       const cached = JSON.parse(cachedUserStr);
       State.currentUser = cached;
-      renderUserNav(cached);
+      renderUserNav(cached, false);
     } catch (e) {}
   }
 
-  // 2. If token is missing, attempt auto-refresh from server
-  if (!State.token && State.currentUser) {
-    DebugConsole.log('auth', `Token missing on startup. Attempting auto-refresh for ${State.currentUser.username}...`);
-    const refreshed = await attemptAutoRefreshSession();
-    if (refreshed) {
-      DebugConsole.log('auth', `Token auto-refreshed successfully on startup for ${State.currentUser.username}`);
-      return;
-    }
+  // 2. If token is missing OR is legacy non-HMAC token, auto-upgrade/refresh it
+  if (State.currentUser && (!State.token || !State.token.includes('.'))) {
+    DebugConsole.log('auth', `Upgrading session token for ${State.currentUser.username}...`);
+    await attemptAutoRefreshSession();
   }
 
   if (!State.token) {
     State.currentUser = null;
-    renderUserNav(null);
+    renderUserNav(null, false);
     return;
   }
 
@@ -597,11 +593,13 @@ async function checkAuthSession() {
     if (data && data.user) {
       State.currentUser = data.user;
       localStorage.setItem('pskr_user', JSON.stringify(data.user));
-      renderUserNav(data.user);
+      renderUserNav(data.user, true);
       DebugConsole.log('auth', `Session verified: ${data.user.username} [${data.user.badge || 'MEMBER'}]`);
     } else {
       const refreshed = await attemptAutoRefreshSession();
-      if (!refreshed) {
+      if (refreshed) {
+        renderUserNav(State.currentUser, true);
+      } else {
         logoutUser(false);
       }
     }
@@ -609,14 +607,16 @@ async function checkAuthSession() {
     DebugConsole.log('warn', `Session check warning: ${err.message}`);
     if (err && err.status === 401) {
       const refreshed = await attemptAutoRefreshSession();
-      if (!refreshed) {
+      if (refreshed) {
+        renderUserNav(State.currentUser, true);
+      } else {
         logoutUser(false);
       }
     }
   }
 }
 
-function renderUserNav(user) {
+function renderUserNav(user, fetchBgData = true) {
   const guestWrap = document.getElementById('authGuestWrap');
   const userPill = document.getElementById('openProfileBtn');
   const notifBellWrap = document.getElementById('notifBellWrap');
@@ -649,7 +649,7 @@ function renderUserNav(user) {
     if (modQueueBtn) {
       if (isKerryAdmin) {
         modQueueBtn.classList.remove('hidden');
-        updateModerationQueueCount();
+        if (fetchBgData) updateModerationQueueCount();
       } else {
         modQueueBtn.classList.add('hidden');
       }
@@ -667,7 +667,7 @@ function renderUserNav(user) {
 
     if (notifBellWrap) {
       notifBellWrap.classList.remove('hidden');
-      loadNotifications();
+      if (fetchBgData) loadNotifications();
     }
   } else {
     guestWrap.classList.remove('hidden');
