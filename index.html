@@ -133,21 +133,6 @@
   <div class="ambient-glow glow-2"></div>
   <div class="ambient-glow glow-3"></div>
 
-  <!-- Online Host Badge Bar -->
-  <div class="host-status-bar" id="hostStatusBar">
-    <div class="host-status-container">
-      <div class="host-status-left">
-        <span class="pulse-dot"></span>
-        <span><strong>Сервер активен:</strong> Платформа работает на Vercel. Все аккаунты и скрипты сохраняются в облаке.</span>
-      </div>
-      <div class="host-status-right">
-        <button class="btn-tunnel-share" id="shareTunnelBtn" title="Поделиться публичной ссылкой для всех пользователей">
-          <i class="fa-solid fa-globe"></i> Публичная ссылка в интернет
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- Navigation Bar -->
   <header class="navbar">
     <div class="nav-container">
@@ -157,7 +142,7 @@
         </div>
         <div class="logo-text-wrap">
           <span class="logo-title">PublicScript<span class="logo-accent">KR</span></span>
-          <span class="logo-badge">ONLINE HUB</span>
+          <span class="logo-badge">HUB</span>
         </div>
       </a>
 
@@ -178,13 +163,6 @@
 
       <!-- Action Buttons & User Profile / Login -->
       <div class="nav-actions">
-        <!-- Static Public Link Pill -->
-        <a href="https://publicscriptkr.vercel.app" target="_blank" class="tunnel-pill" id="tunnelLinkPill" title="Постоянная ссылка для интернета">
-          <i class="fa-solid fa-earth-americas"></i>
-          <span class="tunnel-text">publicscriptkr.vercel.app</span>
-          <span class="tunnel-tag">ONLINE</span>
-        </a>
-
         <!-- Notifications Bell -->
         <div class="notifications-bell-wrap hidden" id="notifBellWrap">
           <button class="notif-bell-btn" id="notifBellBtn" title="Уведомления">
@@ -252,13 +230,13 @@
     <section class="hero-section">
       <div class="hero-content">
         <div class="hero-tag">
-          <i class="fa-solid fa-fire"></i> Открытый репозиторий скриптов нового поколения
+          <i class="fa-solid fa-bolt"></i> Lua & TXT Scripts
         </div>
         <h1 class="hero-title">
-          Публикуй, исследуй и запускай <span class="gradient-text">Lua & TXT скрипты</span>
+          Каталог скриптов <span class="gradient-text">Lua & TXT</span>
         </h1>
         <p class="hero-subtitle">
-          Тысячи проверенных скриптов для Roblox, игр и автоматизации со скриншотами, реальной базой аккаунтов, подсветкой синтаксиса и открытыми отзывами разработчиков.
+          Тысячи проверенных скриптов для игр, автоматизации и утилит с открытым кодом.
         </p>
         
         <!-- Platform Stats -->
@@ -364,31 +342,24 @@
           <span class="logo-title">PublicScript<span class="logo-accent">KR</span></span>
         </div>
         <p class="footer-description">
-          Открытая база скриптов Lua и TXT. Платформа работает в облаке, регистрация для всех пользователей и бесплатный доступ по всему миру.
+          Открытая база скриптов Lua и TXT.
         </p>
       </div>
       <div class="footer-links">
         <div class="footer-col">
-          <h4>Навигация</h4>
+          <h4>Категории</h4>
           <a href="#" class="footer-link filter-trigger" data-cat="lua">Lua Скрипты</a>
           <a href="#" class="footer-link filter-trigger" data-cat="roblox">Roblox Скрипты</a>
-          <a href="#" class="footer-link filter-trigger" data-cat="txt">Конфиги TXT</a>
-          <a href="#" class="footer-link" id="footerNewScript">Опубликовать скрипт</a>
+          <a href="#" class="footer-link filter-trigger" data-cat="txt">TXT Конфиги</a>
         </div>
         <div class="footer-col">
-          <h4>Хранилище</h4>
-          <span class="footer-badge-item"><i class="fa-solid fa-database"></i> База данных в Vercel KV</span>
-          <span class="footer-badge-item"><i class="fa-solid fa-cloud"></i> Хранилище в облаке</span>
-          <span class="footer-badge-item"><i class="fa-solid fa-lock"></i> Защита паролей (SHA-256)</span>
-          <span class="footer-badge-item"><i class="fa-solid fa-shield-halved"></i> Реальные аккаунты</span>
+          <h4>Действия</h4>
+          <a href="#" class="footer-link" id="footerNewScript">Опубликовать скрипт</a>
         </div>
       </div>
     </div>
     <div class="footer-bottom">
-      <span>&copy; 2026 PublicScriptKR. Платформа работает на Vercel.</span>
-      <div class="footer-tech-stack">
-        <span><i class="fa-solid fa-bolt"></i> Real Node.js Host Engine</span>
-      </div>
+      <span>&copy; 2026 PublicScriptKR.</span>
     </div>
   </footer>
 
@@ -1223,7 +1194,55 @@
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- Animated aurora backdrop -->
+  <div class="aurora" aria-hidden="true"></div>
+
   <!-- Scripts (obfuscated) -->
   <script src="app.obf.js"></script>
+
+  <!-- Polish: scroll reveal, navbar state, cursor glow -->
+  <script>
+    (function () {
+      // Navbar hairline on scroll
+      var navbar = document.querySelector('.navbar');
+      window.addEventListener('scroll', function () {
+        if (navbar) navbar.classList.toggle('scrolled', window.scrollY > 8);
+      }, { passive: true });
+
+      // Cursor glow over script grid
+      var grid = document.getElementById('scriptsGrid');
+      if (grid) {
+        var glow = document.createElement('div');
+        glow.className = 'cursor-glow';
+        grid.appendChild(glow);
+        grid.addEventListener('mousemove', function (e) {
+          var r = grid.getBoundingClientRect();
+          glow.style.left = (e.clientX - r.left) + 'px';
+          glow.style.top = (e.clientY - r.top) + 'px';
+        });
+        grid.addEventListener('mouseleave', function () { glow.style.opacity = '0'; });
+      }
+
+      // Scroll reveal for static sections
+      var revealTargets = document.querySelectorAll('.hero-section, .filters-row, .main-footer');
+      revealTargets.forEach(function (el, i) {
+        el.classList.add('reveal');
+        el.style.setProperty('--reveal-delay', (i * 90) + 'ms');
+      });
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (en.isIntersecting) {
+              en.target.classList.add('is-visible');
+              io.unobserve(en.target);
+            }
+          });
+        }, { threshold: 0.08 });
+        revealTargets.forEach(function (el) { io.observe(el); });
+      } else {
+        revealTargets.forEach(function (el) { el.classList.add('is-visible'); });
+      }
+    })();
+  </script>
 </body>
 </html>
