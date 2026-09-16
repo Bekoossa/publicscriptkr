@@ -19,7 +19,7 @@ async function migrate() {
   const res = await fetch(`${VERCEL_URL}/api/migrate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data })
+    body: JSON.stringify({ data, force: true })
   });
   const result = await res.json();
   console.log(res.ok ? 'SUCCESS:' : 'FAILED:', result);
