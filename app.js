@@ -15,7 +15,7 @@ const State = {
   activeModalScript: null,
   uploadedImageDataUrl: null,
   selectedRegisterAvatar: null,
-  publicTunnelUrl: 'https://publicscriptkr.loca.lt'
+  publicTunnelUrl: 'https://publicscriptkr.vercel.app'
 };
 
 // Preset SVGs for stunning cyber covers

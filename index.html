@@ -138,7 +138,7 @@
     <div class="host-status-container">
       <div class="host-status-left">
         <span class="pulse-dot"></span>
-        <span><strong>Сервер активен:</strong> Хостинг запущен на вашем ПК. Все аккаунты, скрипты и фото сохраняются на диск.</span>
+        <span><strong>Сервер активен:</strong> Платформа работает на Vercel. Все аккаунты и скрипты сохраняются в облаке.</span>
       </div>
       <div class="host-status-right">
         <button class="btn-tunnel-share" id="shareTunnelBtn" title="Поделиться публичной ссылкой для всех пользователей">
@@ -179,9 +179,9 @@
       <!-- Action Buttons & User Profile / Login -->
       <div class="nav-actions">
         <!-- Static Public Link Pill -->
-        <a href="https://publicscriptkr.loca.lt" target="_blank" class="tunnel-pill" id="tunnelLinkPill" title="Постоянная ссылка для интернета">
+        <a href="https://publicscriptkr.vercel.app" target="_blank" class="tunnel-pill" id="tunnelLinkPill" title="Постоянная ссылка для интернета">
           <i class="fa-solid fa-earth-americas"></i>
-          <span class="tunnel-text">publicscriptkr.loca.lt</span>
+          <span class="tunnel-text">publicscriptkr.vercel.app</span>
           <span class="tunnel-tag">ONLINE</span>
         </a>
 
@@ -267,7 +267,7 @@
             <div class="stat-icon stat-blue"><i class="fa-solid fa-scroll"></i></div>
             <div class="stat-meta">
               <span class="stat-number" id="totalScriptsCount">0</span>
-              <span class="stat-label">Скриптов на хосте</span>
+              <span class="stat-label">Скриптов на платформе</span>
             </div>
           </div>
           <div class="stat-card">
@@ -364,7 +364,7 @@
           <span class="logo-title">PublicScript<span class="logo-accent">KR</span></span>
         </div>
         <p class="footer-description">
-          Открытая база скриптов Lua и TXT. Реальный сервер на вашем ПК, регистрация для всех пользователей и бесплатный доступ по всему миру.
+          Открытая база скриптов Lua и TXT. Платформа работает в облаке, регистрация для всех пользователей и бесплатный доступ по всему миру.
         </p>
       </div>
       <div class="footer-links">
@@ -377,15 +377,15 @@
         </div>
         <div class="footer-col">
           <h4>Хранилище</h4>
-          <span class="footer-badge-item"><i class="fa-solid fa-database"></i> База данных на вашем ПК</span>
-          <span class="footer-badge-item"><i class="fa-solid fa-folder"></i> Фото в папке ./uploads</span>
+          <span class="footer-badge-item"><i class="fa-solid fa-database"></i> База данных в Vercel KV</span>
+          <span class="footer-badge-item"><i class="fa-solid fa-cloud"></i> Хранилище в облаке</span>
           <span class="footer-badge-item"><i class="fa-solid fa-lock"></i> Защита паролей (SHA-256)</span>
           <span class="footer-badge-item"><i class="fa-solid fa-shield-halved"></i> Реальные аккаунты</span>
         </div>
       </div>
     </div>
     <div class="footer-bottom">
-      <span>&copy; 2026 PublicScriptKR. Сервер работает локально на ПК с поддержкой глобального туннеля.</span>
+      <span>&copy; 2026 PublicScriptKR. Платформа работает на Vercel.</span>
       <div class="footer-tech-stack">
         <span><i class="fa-solid fa-bolt"></i> Real Node.js Host Engine</span>
       </div>
@@ -502,7 +502,7 @@
                   <i class="fa-solid fa-folder-open"></i> Выбрать файл с устройства
                   <input type="file" id="registerAvatarFileInput" accept="image/*" class="file-hidden-input">
                 </label>
-                <span class="avatar-upload-note">Фото с вашего ПК, ноутбука или телефона</span>
+                <span class="avatar-upload-note">Фото с вашего устройства</span>
               </div>
             </div>
             <label class="form-label sub-label" style="margin-top: 8px; font-size: 0.78rem; color: var(--text-dim);">Или выберите готовый:</label>
@@ -820,14 +820,14 @@
           <!-- Screenshot / Image Upload (Saved directly to host disk ./uploads) -->
           <div class="form-group">
             <label class="form-label">
-              <i class="fa-solid fa-image"></i> Скриншот скрипта (сохраняется на хост-ПК)
+              <i class="fa-solid fa-image"></i> Скриншот скрипта
             </label>
             <div class="image-dropzone" id="imageDropzone">
               <input type="file" id="imageFileInput" accept="image/*" class="file-hidden-input">
               <div class="dropzone-content" id="dropzonePrompt">
                 <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
                 <span class="dropzone-text">Перетащите скриншот сюда или <span class="link-span" id="browseImageBtn">выберите файл</span></span>
-                <span class="dropzone-sub">PNG, JPG, WebP (сохраняется в папку uploads на вашем ПК)</span>
+                <span class="dropzone-sub">PNG, JPG, WebP (сохраняется в облачное хранилище)</span>
               </div>
               <div class="dropzone-preview hidden" id="dropzonePreviewWrap">
                 <img src="" alt="Предпросмотр скриншота" id="uploadedImagePreview" class="uploaded-img-tag">
@@ -1202,7 +1202,7 @@
           Любой человек в интернете может перейти по этой ссылке, зарегистрировать свой аккаунт, выкладывать скрипты и ставить лайки. Все данные сохраняются на вашем компьютере!
         </p>
         <div class="tunnel-link-box">
-          <input type="text" id="publicUrlInput" class="form-input" readonly value="Запуск туннеля...">
+          <input type="text" id="publicUrlInput" class="form-input" readonly value="https://publicscriptkr.vercel.app">
           <button class="btn btn-primary" id="copyPublicUrlBtn">
             <i class="fa-regular fa-copy"></i> Копировать
           </button>
