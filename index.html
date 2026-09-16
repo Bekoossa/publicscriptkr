@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PublicScriptKR — Платформа скриптов Lua и TXT</title>
+  <meta name="description" content="Делитесь и находите лучшие скрипты на Lua, TXT и игровых скриптов с открытым кодом, скриншотами, лайками и обсуждениями.">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- DevTools Protection (Maximum) -->
+  <script>
+    (function() {
+      'use strict';
+
+      // === BLOCK 1: Kill all console methods ===
+      var _noop = function() { return undefined; };
+      var _consoleMethods = ['log','debug','info','warn','error','table','dir','dirxml',
+        'trace','group','groupCollapsed','groupEnd','time','timeEnd','timeLog',
+        'assert','count','countReset','profile','profileEnd','clear','exception'];
+      _consoleMethods.forEach(function(m) {
+        try { Object.defineProperty(console, m, { get: function(){ return _noop; }, set: function(){} }); } catch(e) {}
+      });
+      try {
+        Object.defineProperty(window, 'console', {
+          get: function() {
+            var fake = {};
+            _consoleMethods.forEach(function(m){ fake[m] = _noop; });
+            return fake;
+          },
+          set: function() {}
+        });
+      } catch(e) {}
+
+      // === BLOCK 2: Disable all keyboard shortcuts ===
+      function _blockKey(e) {
+        var k = e.key || '';
+        var kc = e.keyCode || e.which || 0;
+        // F12
+        if (kc === 123 || k === 'F12') { e.preventDefault(); e.stopImmediatePropagation(); return false; }
+        // Ctrl combos
+        if (e.ctrlKey) {
+          // Ctrl+Shift+I/J/C/K/E/M/Q/P
+          if (e.shiftKey && 'ijckemqpIJCKEMQP'.indexOf(k) !== -1) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
+          // Ctrl+U, Ctrl+S, Ctrl+A, Ctrl+P
+          if ('uUsSpPaA'.indexOf(k) !== -1) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
+        }
+        // Alt combos (Firefox DevTools)
+        if (e.altKey && (k === 'I' || k === 'i')) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
+      }
+      document.addEventListener('keydown', _blockKey, true);
+      window.addEventListener('keydown', _blockKey, true);
+
+      // === BLOCK 3: Disable right-click ===
+      document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; }, true);
+
+      // === BLOCK 4: INFINITE DEBUGGER LOOP (main weapon) ===
+      // When DevTools is open and NOT paused, this runs every 50ms
+      // When DevTools IS open, it hits breakpoint continuously — page becomes unusable
+      function _infiniteDebugger() {
+        (function _d(){ _d['constructor']('debugger')(); })['constructor']('debugger')();
+      }
+
+      // Also standard inline debugger
+      function _trap() {
+        try {
+          var s = performance.now();
+          (function(){ debugger; })();
+          if (performance.now() - s > 80) {
+            // DevTools was open — nuke the page
+            document.open();
+            document.write('');
+            document.close();
+            window.location.replace('about:blank');
+          }
+        } catch(e) {}
+      }
+
+      // Run traps at high frequency — makes DevTools completely freeze
+      setInterval(function() {
+        try { _infiniteDebugger(); } catch(e) {}
+      }, 50);
+
+      setInterval(_trap, 300);
+
+      // === BLOCK 5: Window size DevTools detector ===
+      var _devOpen = false;
+      function _sizeCheck() {
+        var w = window.outerWidth - window.innerWidth;
+        var h = window.outerHeight - window.innerHeight;
+        if (w > 150 || h > 150) {
+          if (!_devOpen) {
+            _devOpen = true;
+            document.open(); document.write(''); document.close();
+            window.location.replace('about:blank');
+          }
+        } else {
+          _devOpen = false;
+        }
+      }
+      setInterval(_sizeCheck, 500);
+
+      // === BLOCK 6: Disable text selection (makes scraping harder) ===
+      document.addEventListener('selectstart', function(e) { e.preventDefault(); return false; });
+      document.addEventListener('dragstart', function(e) { e.preventDefault(); return false; });
+
+      // === BLOCK 7: Detect devtools via toString trick ===
+      var _img = new Image();
+      Object.defineProperty(_img, 'id', {
+        get: function() {
+          // This fires when devtools tries to display the object
+          document.open(); document.write(''); document.close();
+          window.location.replace('about:blank');
+        }
+      });
+
+    })();
+  </script>
+</head>
+
+
+<body>
+  <!-- Ambient background glow effects -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+  <div class="ambient-glow glow-3"></div>
+
+  <!-- Online Host Badge Bar -->
+  <div class="host-status-bar" id="hostStatusBar">
+    <div class="host-status-container">
+      <div class="host-status-left">
+        <span class="pulse-dot"></span>
+        <span><strong>Сервер активен:</strong> Хостинг запущен на вашем ПК. Все аккаунты, скрипты и фото сохраняются на диск.</span>
+      </div>
+      <div class="host-status-right">
+        <button class="btn-tunnel-share" id="shareTunnelBtn" title="Поделиться публичной ссылкой для всех пользователей">
+          <i class="fa-solid fa-globe"></i> Публичная ссылка в интернет
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="#" class="brand-logo" id="logoLink">
+        <div class="logo-icon-wrap">
+          <i class="fa-solid fa-code"></i>
+        </div>
+        <div class="logo-text-wrap">
+          <span class="logo-title">PublicScript<span class="logo-accent">KR</span></span>
+          <span class="logo-badge">ONLINE HUB</span>
+        </div>
+      </a>
+
+      <!-- Search Bar -->
+      <div class="search-bar-wrap">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input 
+          type="text" 
+          id="searchInput" 
+          placeholder="Поиск скриптов по названию, автору, тегам..." 
+          autocomplete="off"
+        >
+        <span class="search-shortcut" title="Нажмите / для поиска">/</span>
+        <button id="clearSearchBtn" class="clear-search-btn hidden" aria-label="Очистить поиск">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Action Buttons & User Profile / Login -->
+      <div class="nav-actions">
+        <!-- Static Public Link Pill -->
+        <a href="https://publicscriptkr.loca.lt" target="_blank" class="tunnel-pill" id="tunnelLinkPill" title="Постоянная ссылка для интернета">
+          <i class="fa-solid fa-earth-americas"></i>
+          <span class="tunnel-text">publicscriptkr.loca.lt</span>
+          <span class="tunnel-tag">ONLINE</span>
+        </a>
+
+        <!-- Notifications Bell -->
+        <div class="notifications-bell-wrap hidden" id="notifBellWrap">
+          <button class="notif-bell-btn" id="notifBellBtn" title="Уведомления">
+            <i class="fa-regular fa-bell"></i>
+            <span class="notif-badge hidden" id="notifBadge">0</span>
+          </button>
+          <!-- Notifications Popover -->
+          <div class="notifications-popover hidden" id="notifPopover">
+            <div class="notif-popover-header">
+              <div class="notif-header-title">
+                <i class="fa-solid fa-bell"></i> <span>Уведомления</span>
+              </div>
+              <div class="notif-header-actions">
+                <button class="notif-mark-read-btn" id="markAllReadBtn" title="Отметить все прочитанными">Прочитать все</button>
+                <button class="notif-close-btn" id="closeNotifBtn" title="Закрыть окно уведомлений" aria-label="Закрыть">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+            <div class="notif-list" id="notifList">
+              <div class="notif-empty">Нет новых уведомлений</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Moderator Queue Button (Kerryrbq) -->
+        <button class="btn btn-mod-queue hidden" id="openModQueueBtn" title="Окно модерации новых скриптов">
+          <i class="fa-solid fa-shield-halved"></i>
+          <span>Модерация</span>
+          <span class="mod-queue-badge hidden" id="modQueueBadge">0</span>
+        </button>
+
+        <button class="btn btn-primary" id="openUploadModalBtn">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <span>Опубликовать</span>
+        </button>
+
+        <!-- Shown when NOT logged in -->
+        <div class="auth-btn-wrap" id="authGuestWrap">
+          <button class="btn btn-secondary" id="openAuthModalBtn">
+            <i class="fa-solid fa-arrow-right-to-bracket"></i>
+            <span>Войти / Регистрация</span>
+          </button>
+        </div>
+
+        <!-- Shown when LOGGED IN -->
+        <div class="user-pill hidden" id="openProfileBtn" role="button" tabindex="0" title="Открыть мой профиль">
+          <img src="" alt="User Avatar" class="user-avatar-small" id="navUserAvatar">
+          <div class="user-pill-info">
+            <span class="user-pill-name" id="navUserName">User</span>
+            <span class="user-pill-badge" id="navUserBadge">MEMBER</span>
+          </div>
+          <button class="nav-logout-icon-btn" id="navLogoutBtn" title="Выйти из аккаунта">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+    
+    <!-- Hero Banner -->
+    <section class="hero-section">
+      <div class="hero-content">
+        <div class="hero-tag">
+          <i class="fa-solid fa-fire"></i> Открытый репозиторий скриптов нового поколения
+        </div>
+        <h1 class="hero-title">
+          Публикуй, исследуй и запускай <span class="gradient-text">Lua & TXT скрипты</span>
+        </h1>
+        <p class="hero-subtitle">
+          Тысячи проверенных скриптов для Roblox, игр и автоматизации со скриншотами, реальной базой аккаунтов, подсветкой синтаксиса и открытыми отзывами разработчиков.
+        </p>
+        
+        <!-- Platform Stats -->
+        <div class="hero-stats">
+          <div class="stat-card">
+            <div class="stat-icon stat-blue"><i class="fa-solid fa-scroll"></i></div>
+            <div class="stat-meta">
+              <span class="stat-number" id="totalScriptsCount">0</span>
+              <span class="stat-label">Скриптов на хосте</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-purple"><i class="fa-solid fa-eye"></i></div>
+            <div class="stat-meta">
+              <span class="stat-number" id="totalViewsCount">0</span>
+              <span class="stat-label">Реальных просмотров</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-pink"><i class="fa-solid fa-heart"></i></div>
+            <div class="stat-meta">
+              <span class="stat-number" id="totalLikesCount">0</span>
+              <span class="stat-label">Лайков пользователей</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-emerald"><i class="fa-solid fa-users"></i></div>
+            <div class="stat-meta">
+              <span class="stat-number" id="activeAuthorsCount">0</span>
+              <span class="stat-label">Созданных аккаунтов</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls Bar: Filter Categories & Sorting -->
+    <section class="controls-section">
+      <div class="filters-row">
+        <div class="category-chips" id="categoryChips">
+          <button class="chip active" data-category="all">
+            <i class="fa-solid fa-shapes"></i> Все скрипты
+          </button>
+          <button class="chip" data-category="lua">
+            <i class="fa-solid fa-moon"></i> Lua Скрипты
+          </button>
+          <button class="chip" data-category="roblox">
+            <i class="fa-solid fa-gamepad"></i> Roblox / Game
+          </button>
+          <button class="chip" data-category="txt">
+            <i class="fa-solid fa-file-lines"></i> TXT / Конфиги
+          </button>
+          <button class="chip" data-category="bot">
+            <i class="fa-solid fa-robot"></i> Боты & Автоматизация
+          </button>
+          <button class="chip" data-category="utilities">
+            <i class="fa-solid fa-toolbox"></i> Утилиты & GUI
+          </button>
+        </div>
+
+        <div class="sort-select-wrapper">
+          <label for="sortSelect" class="sort-label"><i class="fa-solid fa-arrow-down-wide-short"></i> Сортировка:</label>
+          <select id="sortSelect" class="sort-select">
+            <option value="newest" selected>Сначала новые</option>
+            <option value="popular">По просмотрам</option>
+            <option value="liked">По лайкам</option>
+            <option value="comments">По комментариям</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Scripts Grid Section -->
+    <section class="scripts-section">
+      <div class="section-heading">
+        <h2 class="section-title" id="sectionFeedTitle">Каталог скриптов</h2>
+        <span class="results-counter" id="resultsCounter">Показано 0 скриптов</span>
+      </div>
+
+      <div class="scripts-grid" id="scriptsGrid">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state hidden" id="emptyState">
+        <div class="empty-icon"><i class="fa-solid fa-box-open"></i></div>
+        <h3>Ничего не найдено</h3>
+        <p>По вашему запросу ничего не найдено. Создайте аккаунт и опубликуйте свой первый скрипт!</p>
+        <button class="btn btn-primary" id="emptyUploadBtn">
+          <i class="fa-solid fa-plus"></i> Опубликовать скрипт
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="main-footer">
+    <div class="footer-container">
+      <div class="footer-col-brand">
+        <div class="brand-logo footer-logo">
+          <div class="logo-icon-wrap"><i class="fa-solid fa-code"></i></div>
+          <span class="logo-title">PublicScript<span class="logo-accent">KR</span></span>
+        </div>
+        <p class="footer-description">
+          Открытая база скриптов Lua и TXT. Реальный сервер на вашем ПК, регистрация для всех пользователей и бесплатный доступ по всему миру.
+        </p>
+      </div>
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Навигация</h4>
+          <a href="#" class="footer-link filter-trigger" data-cat="lua">Lua Скрипты</a>
+          <a href="#" class="footer-link filter-trigger" data-cat="roblox">Roblox Скрипты</a>
+          <a href="#" class="footer-link filter-trigger" data-cat="txt">Конфиги TXT</a>
+          <a href="#" class="footer-link" id="footerNewScript">Опубликовать скрипт</a>
+        </div>
+        <div class="footer-col">
+          <h4>Хранилище</h4>
+          <span class="footer-badge-item"><i class="fa-solid fa-database"></i> База данных на вашем ПК</span>
+          <span class="footer-badge-item"><i class="fa-solid fa-folder"></i> Фото в папке ./uploads</span>
+          <span class="footer-badge-item"><i class="fa-solid fa-lock"></i> Защита паролей (SHA-256)</span>
+          <span class="footer-badge-item"><i class="fa-solid fa-shield-halved"></i> Реальные аккаунты</span>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 PublicScriptKR. Сервер работает локально на ПК с поддержкой глобального туннеля.</span>
+      <div class="footer-tech-stack">
+        <span><i class="fa-solid fa-bolt"></i> Real Node.js Host Engine</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ============================================== -->
+  <!-- MODAL: AUTHENTICATION (LOGIN & REGISTER) -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="authModal">
+    <div class="modal-dialog modal-auth">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge upload-badge"><i class="fa-solid fa-user-shield"></i> АККАУНТ</div>
+          <h2 class="modal-title" id="authModalTitle">Вход в аккаунт</h2>
+        </div>
+        <button class="modal-close-btn" id="closeAuthModalBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Auth Tabs -->
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab-btn active" id="tabLoginBtn">
+            <i class="fa-solid fa-right-to-bracket"></i> Вход
+          </button>
+          <button type="button" class="auth-tab-btn" id="tabRegisterBtn">
+            <i class="fa-solid fa-user-plus"></i> Создать аккаунт
+          </button>
+        </div>
+
+        <!-- LOGIN FORM -->
+        <form id="loginForm" class="auth-form-box">
+          <div class="form-group">
+            <label for="loginUsernameInput" class="form-label">
+              <i class="fa-solid fa-user"></i> Имя пользователя
+            </label>
+            <input 
+              type="text" 
+              id="loginUsernameInput" 
+              class="form-input" 
+              placeholder="Введите ваш никнейм" 
+              required
+            >
+          </div>
+          <div class="form-group">
+            <label for="loginPasswordInput" class="form-label">
+              <i class="fa-solid fa-lock"></i> Пароль
+            </label>
+            <input 
+              type="password" 
+              id="loginPasswordInput" 
+              class="form-input" 
+              placeholder="••••••••" 
+              required
+            >
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            <i class="fa-solid fa-arrow-right-to-bracket"></i> Войти
+          </button>
+        </form>
+
+        <!-- REGISTER FORM -->
+        <form id="registerForm" class="auth-form-box hidden">
+          <div class="form-group">
+            <label for="regUsernameInput" class="form-label">
+              <i class="fa-solid fa-user"></i> Придумайте никнейм <span class="req">*</span>
+            </label>
+            <input 
+              type="text" 
+              id="regUsernameInput" 
+              class="form-input" 
+              placeholder="От 3 до 25 символов" 
+              minlength="3" 
+              maxlength="25" 
+              required
+            >
+          </div>
+          <div class="form-group">
+            <label for="regPasswordInput" class="form-label">
+              <i class="fa-solid fa-lock"></i> Пароль <span class="req">*</span>
+            </label>
+            <input 
+              type="password" 
+              id="regPasswordInput" 
+              class="form-input" 
+              placeholder="Не менее 4 символов" 
+              minlength="4" 
+              required
+            >
+          </div>
+          <div class="form-group">
+            <label for="regBioInput" class="form-label">
+              <i class="fa-solid fa-comment-dots"></i> О себе / Статус
+            </label>
+            <input 
+              type="text" 
+              id="regBioInput" 
+              class="form-input" 
+              placeholder="Например: Разработчик скриптов для Roblox" 
+              maxlength="160"
+            >
+          </div>
+
+          <div class="form-group">
+            <label class="form-label"><i class="fa-solid fa-camera"></i> Аватар профиля</label>
+            <div class="avatar-upload-row">
+              <div class="avatar-preview-circle-wrap">
+                <img src="https://images.unsplash.com/photo-1566492031773-4f4e44671857?w=150&auto=format&fit=crop&q=80" alt="Preview" id="regAvatarPreview" class="avatar-preview-circle">
+              </div>
+              <div class="avatar-upload-controls">
+                <label class="btn btn-secondary btn-sm avatar-file-picker-label">
+                  <i class="fa-solid fa-folder-open"></i> Выбрать файл с устройства
+                  <input type="file" id="registerAvatarFileInput" accept="image/*" class="file-hidden-input">
+                </label>
+                <span class="avatar-upload-note">Фото с вашего ПК, ноутбука или телефона</span>
+              </div>
+            </div>
+            <label class="form-label sub-label" style="margin-top: 8px; font-size: 0.78rem; color: var(--text-dim);">Или выберите готовый:</label>
+            <div class="avatar-presets" id="registerAvatarPresets">
+              <!-- Preset avatars -->
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">
+            <i class="fa-solid fa-user-plus"></i> Зарегистрироваться бесплатно
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: SCRIPT DETAIL & CODE VIEWER -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="scriptDetailModal">
+    <div class="modal-dialog modal-large">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge" id="detailLangBadge">LUA</div>
+          <h2 class="modal-title" id="detailTitle">Название скрипта</h2>
+        </div>
+        <button class="modal-close-btn" id="closeDetailModalBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Hero Meta & Image Banner -->
+        <div class="detail-header-meta">
+          <div class="detail-author-row">
+            <img src="" alt="Author Avatar" class="author-avatar-img" id="detailAuthorAvatar">
+            <div class="author-details">
+              <span class="author-name" id="detailAuthorName">Author</span>
+              <span class="post-date" id="detailDate"><i class="fa-regular fa-clock"></i> 2 дня назад</span>
+            </div>
+          </div>
+
+          <div class="detail-action-badges">
+            <div class="detail-status-pill pending" id="detailStatusPill">
+              <i class="fa-solid fa-clock"></i> <span id="detailStatusText">Не проверено на запуск</span>
+            </div>
+            <div class="engagement-badge script-rating-pill" id="detailRatingBadge" title="Рейтинг этого скрипта">
+              <i class="fa-solid fa-star" style="color: #fbbf24;"></i>
+              <span id="detailRatingVal">5.0</span>
+              <span class="rating-count-sub" id="detailRatingCountVal">(0)</span>
+            </div>
+            <button class="engagement-badge like-action-btn" id="detailLikeBtn" title="Поставить лайк">
+              <i class="fa-regular fa-heart"></i>
+              <span id="detailLikesCount">0</span>
+            </button>
+            <div class="engagement-badge" title="Реальные просмотры">
+              <i class="fa-regular fa-eye"></i>
+              <span id="detailViewsCount">0</span>
+            </div>
+            <div class="engagement-badge" title="Комментарии">
+              <i class="fa-regular fa-comment"></i>
+              <span id="detailCommentsCount">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Script Rating Bar (1 to 5 Stars ⭐) -->
+        <div class="script-rating-interactive-bar" id="scriptRatingInteractiveBar">
+          <div class="rating-bar-info">
+            <div class="rating-bar-title">
+              <i class="fa-solid fa-star-half-stroke" style="color: #fbbf24;"></i>
+              <span>Оценка скрипта:</span>
+              <strong class="rating-big-score" id="barRatingScore">5.0 ★</strong>
+              <span class="rating-total-votes" id="barRatingVotes">(0 оценок)</span>
+            </div>
+            <div class="rating-bar-hint" id="barRatingHint">Нажмите на звезду, чтобы поставить оценку этому скрипту:</div>
+          </div>
+          <div class="script-stars-selector" id="scriptStarsSelector">
+            <button type="button" class="script-star-btn" data-val="1" title="1 звезда — Ужасно"><i class="fa-solid fa-star"></i></button>
+            <button type="button" class="script-star-btn" data-val="2" title="2 звезды — Плохо"><i class="fa-solid fa-star"></i></button>
+            <button type="button" class="script-star-btn" data-val="3" title="3 звезды — Нормально"><i class="fa-solid fa-star"></i></button>
+            <button type="button" class="script-star-btn" data-val="4" title="4 звезды — Хорошо"><i class="fa-solid fa-star"></i></button>
+            <button type="button" class="script-star-btn" data-val="5" title="5 звёзд — Отлично!"><i class="fa-solid fa-star"></i></button>
+            <span class="user-vote-status-tag" id="userVoteStatusTag">Поставьте оценку</span>
+          </div>
+        </div>
+
+        <!-- Moderator Control Bar (Visible to Kerryrbq / Admins) -->
+        <div class="moderator-bar hidden" id="moderatorActionPanel">
+          <div class="moderator-bar-left">
+            <i class="fa-solid fa-shield-halved mod-shield-icon"></i>
+            <div>
+              <span class="moderator-label">Панель модератора (Kerryrbq):</span>
+              <span class="mod-current-status" id="modCurrentStatus">Статус: Не проверено</span>
+            </div>
+          </div>
+          <div class="moderator-actions">
+            <button class="btn-mod btn-mod-verify" id="modBtnVerify" title="Одобрить скрипт">
+              <i class="fa-solid fa-circle-check"></i> <span>Проверено на запуск</span>
+            </button>
+            <button class="btn-mod btn-mod-pending" id="modBtnPending" title="Отметить как не проверено">
+              <i class="fa-solid fa-clock"></i> <span>Не проверено</span>
+            </button>
+            <button class="btn-mod btn-mod-reject" id="modBtnReject" title="Отклонить скрипт с комментарием">
+              <i class="fa-solid fa-circle-xmark"></i> <span>Отказать</span>
+            </button>
+            <button class="btn-mod btn-mod-delete" id="modBtnDelete" title="Удалить этот скрипт с сайта навсегда">
+              <i class="fa-solid fa-trash-can"></i> <span>Удалить</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="detail-modal-tabs" id="detailModalTabs">
+          <button class="detail-tab-pill active" id="tabDetailCodeBtn">
+            <i class="fa-solid fa-code"></i> <span>Код скрипта</span>
+            <span class="tab-badge-counter" id="tabDetailCodeCount">0 строк</span>
+          </button>
+          <button class="detail-tab-pill" id="tabDetailCommentsBtn">
+            <i class="fa-solid fa-comments"></i> <span>Комментарии</span>
+            <span class="tab-badge-counter" id="tabDetailCommentsCount">0</span>
+          </button>
+          <button class="detail-tab-pill" id="tabDetailCoverBtn">
+            <i class="fa-solid fa-image"></i> <span>Скриншот</span>
+          </button>
+        </div>
+
+        <!-- SECTION 1: CODE & DESCRIPTION (Default Active) -->
+        <div class="detail-tab-section" id="detailSectionCode">
+          <!-- Description -->
+          <div class="detail-description-box">
+            <h4 class="box-heading"><i class="fa-solid fa-align-left"></i> Описание скрипта</h4>
+            <p id="detailDescriptionText" class="detail-description-text"></p>
+            <div class="detail-tags-list" id="detailTagsList"></div>
+          </div>
+
+          <!-- Code Viewer with Toolbar -->
+          <div class="code-viewer-container">
+            <div class="code-viewer-toolbar">
+              <div class="code-meta-left">
+                <div class="code-tab active" id="codeFormatTab">
+                  <i class="fa-solid fa-code"></i> <span id="codeFileName">script.lua</span>
+                </div>
+                <span class="code-lines-count" id="codeLinesCount">0 строк</span>
+              </div>
+              <div class="code-actions-right">
+                <button class="btn btn-secondary btn-sm" id="copyCodeBtn">
+                  <i class="fa-regular fa-copy"></i>
+                  <span id="copyBtnText">Скопировать код</span>
+                </button>
+                <button class="btn btn-primary btn-sm" id="downloadCodeBtn">
+                  <i class="fa-solid fa-download"></i>
+                  <span>Скачать файл</span>
+                </button>
+              </div>
+            </div>
+            
+            <div class="code-block-wrapper" id="codeBlockWrapper">
+              <div class="code-lines-container" id="detailCodeBox"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 2: COMMENTS (Hidden by default) -->
+        <div class="detail-tab-section hidden" id="detailSectionComments">
+          <div class="comments-container">
+            <h3 class="comments-heading">
+              <i class="fa-solid fa-comments"></i> Обсуждение и комментарии (<span id="commentsCountHeading">0</span>)
+            </h3>
+
+            <!-- Post comment form -->
+            <form class="comment-form" id="newCommentForm">
+              <img src="" alt="Ваш аватар" class="comment-avatar" id="commentUserAvatar">
+              <div class="comment-input-box">
+                <textarea 
+                  id="commentInput" 
+                  placeholder="Оставьте свой отзыв или вопрос по работе скрипта..." 
+                  rows="3" 
+                  required
+                ></textarea>
+                <div class="comment-form-actions">
+                  <span class="comment-hint" id="commentFormHint"><i class="fa-solid fa-circle-info"></i> Комментарий сохраняется на сервере</span>
+                  <button type="submit" class="btn btn-primary btn-sm" id="submitCommentBtn">
+                    <i class="fa-solid fa-paper-plane"></i> Отправить комментарий
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <!-- Comments Feed -->
+            <div class="comments-feed" id="commentsFeed">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 3: COVER SCREENSHOT (Hidden by default) -->
+        <div class="detail-tab-section hidden" id="detailSectionCover">
+          <div class="detail-preview-box" id="detailPreviewContainer">
+            <img src="" alt="Скриншот скрипта" id="detailCoverImage" class="detail-cover-image">
+            <div class="preview-overlay-zoom" id="zoomImageBtn" title="Нажмите для увеличения изображения">
+              <i class="fa-solid fa-magnifying-glass-plus"></i>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: MODERATION QUEUE (Kerryrbq) -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="moderationQueueModal">
+    <div class="modal-dialog modal-large modal-mod-queue">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge mod-badge"><i class="fa-solid fa-shield-halved"></i> МОДЕРАЦИЯ</div>
+          <h2 class="modal-title">Окно проверки скриптов</h2>
+          <span class="mod-queue-header-pill" id="modQueueModalCount">0 ожидают проверки</span>
+        </div>
+        <div class="modal-header-actions">
+          <button class="btn btn-secondary btn-sm" id="refreshModQueueBtn" title="Обновить список">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+          <button class="modal-close-btn" id="closeModQueueBtn" aria-label="Закрыть">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-body mod-queue-modal-body">
+        <div class="mod-queue-info-banner">
+          <div class="banner-icon"><i class="fa-solid fa-shield-virus"></i></div>
+          <div class="banner-text">
+            <strong>Пре-модерация активна:</strong> Все скрипты от других пользователей попадают сюда и <em>скрыты с сайта</em>, пока вы лично не проверите их. Одобрите скрипт («Проверено на запуск») для публикации, отклоните с комментарием или удалите.
+          </div>
+        </div>
+
+        <!-- Pending list -->
+        <div class="mod-queue-list" id="modQueueList">
+          <!-- Populated by JavaScript -->
+        </div>
+
+        <!-- Empty state -->
+        <div class="mod-queue-empty hidden" id="emptyModQueue">
+          <div class="empty-icon-box">
+            <i class="fa-solid fa-circle-check"></i>
+          </div>
+          <h3>Все скрипты проверены!</h3>
+          <p>В очереди нет заявок, ожидающих вашего решения. Как только пользователь загрузит новый скрипт, он появится здесь и вам придет уведомление.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: UPLOAD SCRIPT -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="uploadScriptModal">
+    <div class="modal-dialog modal-medium">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge upload-badge"><i class="fa-solid fa-cloud-arrow-up"></i> ПУБЛИКАЦИЯ</div>
+          <h2 class="modal-title">Опубликовать новый скрипт</h2>
+        </div>
+        <button class="modal-close-btn" id="closeUploadModalBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <form id="uploadForm" class="upload-form">
+          <!-- Title -->
+          <div class="form-group">
+            <label for="scriptTitleInput" class="form-label">
+              <i class="fa-solid fa-heading"></i> Название скрипта <span class="req">*</span>
+            </label>
+            <input 
+              type="text" 
+              id="scriptTitleInput" 
+              class="form-input" 
+              placeholder="Например: Super Roblox Hub v3 / Auto Farm & ESP" 
+              required
+            >
+          </div>
+
+          <!-- Category & Format -->
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label for="scriptCategorySelect" class="form-label">
+                <i class="fa-solid fa-folder-tree"></i> Категория <span class="req">*</span>
+              </label>
+              <select id="scriptCategorySelect" class="form-input" required>
+                <option value="lua">Lua Скрипт</option>
+                <option value="roblox">Roblox / Игровой</option>
+                <option value="txt">TXT / Конфигурация</option>
+                <option value="bot">Бот / Автоматизация</option>
+                <option value="utilities">Утилита / GUI</option>
+              </select>
+            </div>
+
+            <div class="form-group col-6">
+              <label for="scriptExtensionSelect" class="form-label">
+                <i class="fa-solid fa-file-code"></i> Расширение файла <span class="req">*</span>
+              </label>
+              <select id="scriptExtensionSelect" class="form-input" required>
+                <option value="lua">.lua (Lua Script)</option>
+                <option value="txt">.txt (Текстовый конфиг/скрипт)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Screenshot / Image Upload (Saved directly to host disk ./uploads) -->
+          <div class="form-group">
+            <label class="form-label">
+              <i class="fa-solid fa-image"></i> Скриншот скрипта (сохраняется на хост-ПК)
+            </label>
+            <div class="image-dropzone" id="imageDropzone">
+              <input type="file" id="imageFileInput" accept="image/*" class="file-hidden-input">
+              <div class="dropzone-content" id="dropzonePrompt">
+                <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+                <span class="dropzone-text">Перетащите скриншот сюда или <span class="link-span" id="browseImageBtn">выберите файл</span></span>
+                <span class="dropzone-sub">PNG, JPG, WebP (сохраняется в папку uploads на вашем ПК)</span>
+              </div>
+              <div class="dropzone-preview hidden" id="dropzonePreviewWrap">
+                <img src="" alt="Предпросмотр скриншота" id="uploadedImagePreview" class="uploaded-img-tag">
+                <button type="button" class="remove-preview-btn" id="removeImageBtn" title="Удалить скриншот">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </div>
+            <!-- Preset Cover Picker quick buttons -->
+            <div class="preset-covers">
+              <span class="preset-label">Или выберите готовую тему превью:</span>
+              <div class="preset-items">
+                <button type="button" class="preset-btn" data-preset="neon-executor">⚡ Neon Lua</button>
+                <button type="button" class="preset-btn" data-preset="cyber-hub">🕹️ Cyber Hub</button>
+                <button type="button" class="preset-btn" data-preset="esp-radar">👁️ ESP & Vision</button>
+                <button type="button" class="preset-btn" data-preset="dark-config">📄 Dark TXT</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Script Code Area & File upload -->
+          <div class="form-group">
+            <div class="form-label-bar">
+              <label for="scriptCodeInput" class="form-label">
+                <i class="fa-solid fa-terminal"></i> Исходный код скрипта <span class="req">*</span>
+              </label>
+              <label class="upload-file-chip" title="Загрузить из готового файла .lua или .txt">
+                <i class="fa-solid fa-file-import"></i> Загрузить из файла (.lua / .txt)
+                <input type="file" id="codeFileInput" accept=".lua,.txt,.py,.js" class="file-hidden-input">
+              </label>
+            </div>
+            <textarea 
+              id="scriptCodeInput" 
+              class="form-input code-editor-textarea" 
+              rows="9" 
+              placeholder="-- Вставьте ваш Lua или TXT код сюда или загрузите файл выше...&#10;local Player = game.Players.LocalPlayer&#10;print('PublicScriptKR Loaded successfully!')" 
+              required
+            ></textarea>
+          </div>
+
+          <!-- Description -->
+          <div class="form-group">
+            <label for="scriptDescInput" class="form-label">
+              <i class="fa-solid fa-paragraph"></i> Описание, инструкция по запуску
+            </label>
+            <textarea 
+              id="scriptDescInput" 
+              class="form-input" 
+              rows="3" 
+              placeholder="Опишите функции скрипта, как его внедрять/запускать, поддерживаемые игры и горячие клавиши..."
+            ></textarea>
+          </div>
+
+          <!-- Tags -->
+          <div class="form-group">
+            <label for="scriptTagsInput" class="form-label">
+              <i class="fa-solid fa-tags"></i> Теги (через запятую)
+            </label>
+            <input 
+              type="text" 
+              id="scriptTagsInput" 
+              class="form-input" 
+              placeholder="roblox, autofarm, esp, hub, bypass, utility"
+            >
+          </div>
+
+          <!-- Submit Bar -->
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="cancelUploadBtn">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="publishScriptSubmitBtn">
+              <i class="fa-solid fa-rocket"></i> Опубликовать на сервер
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: USER PROFILE -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="userProfileModal">
+    <div class="modal-dialog modal-medium">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge profile-badge"><i class="fa-solid fa-user-gear"></i> ПРОФИЛЬ</div>
+          <h2 class="modal-title">Мой профиль на PublicScriptKR</h2>
+        </div>
+        <button class="modal-close-btn" id="closeProfileModalBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="profile-header-card">
+          <div class="profile-avatar-block">
+            <img src="" alt="Profile Avatar" id="profileModalAvatar" class="profile-large-avatar">
+            <button class="change-avatar-btn" id="changeAvatarBtn" title="Сменить аватар">
+              <i class="fa-solid fa-camera"></i>
+            </button>
+            <input type="file" id="profileAvatarFileInput" accept="image/*" class="file-hidden-input">
+          </div>
+          <div class="profile-info-block">
+            <h3 class="profile-username" id="profileModalUsername">User</h3>
+            <span class="profile-rank" id="profileModalBadge"><i class="fa-solid fa-shield-halved"></i> Verified User</span>
+            <p class="profile-bio" id="profileModalBio">Пользователь платформы PublicScriptKR.</p>
+          </div>
+        </div>
+
+        <!-- Profile Stats -->
+        <div class="profile-stats-grid">
+          <div class="pstat-box">
+            <span class="pstat-val" id="profileMyScriptsCount">0</span>
+            <span class="pstat-lbl">Моих скриптов</span>
+          </div>
+          <div class="pstat-box">
+            <span class="pstat-val" id="profileMyLikesCount">0</span>
+            <span class="pstat-lbl">Получено лайков</span>
+          </div>
+          <div class="pstat-box">
+            <span class="pstat-val" id="profileMyViewsCount">0</span>
+            <span class="pstat-lbl">Всего просмотров</span>
+          </div>
+        </div>
+
+        <!-- Profile Tabs -->
+        <div class="profile-nav-tabs">
+          <button class="p-tab active" data-tab="myscripts" id="pTabMyScripts">
+            <i class="fa-solid fa-code"></i> Мои выложенные скрипты
+          </button>
+          <button class="p-tab" data-tab="settings" id="pTabSettings">
+            <i class="fa-solid fa-gear"></i> Настройки профиля
+          </button>
+        </div>
+
+        <!-- Tab 1: My Scripts List -->
+        <div class="profile-tab-content active" id="tabContentMyScripts">
+          <div class="user-scripts-list" id="userScriptsList">
+            <!-- Rendered dynamically -->
+          </div>
+          <div class="empty-user-scripts hidden" id="emptyUserScripts">
+            <i class="fa-regular fa-folder-open"></i>
+            <p>У вас пока нет опубликованных скриптов.</p>
+            <button class="btn btn-primary btn-sm" id="profileAddScriptBtn">
+              <i class="fa-solid fa-plus"></i> Опубликовать сейчас
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab 2: Settings / Edit Profile -->
+        <div class="profile-tab-content hidden" id="tabContentSettings">
+          <form id="editProfileForm" class="edit-profile-form">
+            <div class="form-group">
+              <label for="editBioInput" class="form-label">О себе / Статус</label>
+              <textarea id="editBioInput" class="form-input" rows="3" maxlength="160"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label"><i class="fa-solid fa-camera"></i> Сменить аватар</label>
+              <div class="avatar-upload-row">
+                <label class="btn btn-secondary btn-sm avatar-file-picker-label">
+                  <i class="fa-solid fa-folder-open"></i> Загрузить фото с ПК / Телефона
+                  <input type="file" id="editProfileAvatarFileInput" accept="image/*" class="file-hidden-input">
+                </label>
+              </div>
+              <label class="form-label sub-label" style="margin-top: 8px; font-size: 0.78rem; color: var(--text-dim);">Или выберите готовый:</label>
+              <div class="avatar-presets" id="avatarPresets">
+                <!-- Clickable avatars -->
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              <i class="fa-solid fa-floppy-disk"></i> Сохранить профиль
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: OTHER PLAYER / PUBLIC PROFILE -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="publicProfileModal">
+    <div class="modal-dialog modal-large modal-public-profile">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge user-badge"><i class="fa-solid fa-user-astronaut"></i> ПРОФИЛЬ ИГРОКА</div>
+          <h2 class="modal-title" id="pubProfileTitle">Профиль автора</h2>
+        </div>
+        <button class="modal-close-btn" id="closePubProfileBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Profile Banner Card -->
+        <div class="profile-header-card pub-header-card">
+          <div class="profile-avatar-block">
+            <img src="" alt="Player Avatar" id="pubProfileAvatar" class="profile-large-avatar">
+          </div>
+          <div class="profile-info-block">
+            <div class="pub-name-row">
+              <h3 class="profile-username" id="pubProfileUsername">Player</h3>
+              <span class="profile-rank" id="pubProfileBadge"><i class="fa-solid fa-certificate"></i> Verified</span>
+            </div>
+            <p class="profile-bio" id="pubProfileBio">Пользователь платформы PublicScriptKR.</p>
+            <div class="pub-member-since" id="pubProfileJoinDate">
+              <i class="fa-regular fa-calendar-check"></i> На сайте с ...
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin Badge Assign Bar (Only visible to Kerryrbq / Moderators) -->
+        <div class="admin-badge-panel hidden" id="adminBadgePanel">
+          <div class="admin-badge-header">
+            <i class="fa-solid fa-crown mod-crown-icon"></i>
+            <div>
+              <strong>Панель Администратора (Kerryrbq): Выдача персонального тега</strong>
+              <div class="admin-badge-sub">Установите уникальный статус или тег, который будет отображаться у этого игрока</div>
+            </div>
+          </div>
+          <div class="admin-badge-controls">
+            <div class="admin-badge-presets">
+              <span class="badge-preset-label">Быстрые пресеты:</span>
+              <button type="button" class="badge-preset-chip" data-badge="VERIFIED">✅ VERIFIED</button>
+              <button type="button" class="badge-preset-chip" data-badge="VIP CODER">⭐ VIP CODER</button>
+              <button type="button" class="badge-preset-chip" data-badge="TOP DEV">💻 TOP DEV</button>
+              <button type="button" class="badge-preset-chip" data-badge="TRUSTED">🛡️ TRUSTED</button>
+              <button type="button" class="badge-preset-chip" data-badge="MODERATOR">⚡ MODERATOR</button>
+            </div>
+            <div class="admin-badge-input-row">
+              <div class="input-with-icon">
+                <i class="fa-solid fa-tag"></i>
+                <input type="text" id="adminBadgeCustomInput" class="form-input" placeholder="Или введите свой тег (напр. 🔥 LEGEND, 🚀 PRO LUA)..." maxlength="30">
+              </div>
+              <button type="button" class="btn btn-primary" id="adminSaveBadgeBtn">
+                <i class="fa-solid fa-check"></i> Выдать тег
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" id="adminClearBadgeBtn" title="Сбросить на стандартный">
+                Сбросить
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Profile Statistics Grid -->
+        <div class="profile-stats-grid pub-stats-grid">
+          <div class="pstat-box">
+            <span class="pstat-val" id="pubStatScripts">0</span>
+            <span class="pstat-lbl"><i class="fa-solid fa-code"></i> Скриптов</span>
+          </div>
+          <div class="pstat-box highlight-stat">
+            <span class="pstat-val" id="pubStatRating">0.0 <span class="star-mini">★</span></span>
+            <span class="pstat-lbl"><i class="fa-solid fa-star"></i> Средний рейтинг</span>
+          </div>
+          <div class="pstat-box">
+            <span class="pstat-val" id="pubStatReviews">0</span>
+            <span class="pstat-lbl"><i class="fa-regular fa-comment-dots"></i> Отзывов</span>
+          </div>
+          <div class="pstat-box">
+            <span class="pstat-val" id="pubStatViews">0</span>
+            <span class="pstat-lbl"><i class="fa-regular fa-eye"></i> Просмотров</span>
+          </div>
+          <div class="pstat-box">
+            <span class="pstat-val" id="pubStatLikes">0</span>
+            <span class="pstat-lbl"><i class="fa-regular fa-heart"></i> Лайков</span>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs: Scripts vs Reviews -->
+        <div class="profile-nav-tabs">
+          <button class="p-tab active" id="pubTabScriptsBtn">
+            <i class="fa-solid fa-layer-group"></i> Скрипты автора (<span id="pubScriptsCountTab">0</span>)
+          </button>
+          <button class="p-tab" id="pubTabReviewsBtn">
+            <i class="fa-solid fa-comments"></i> Отзывы и репутация (<span id="pubReviewsCountTab">0</span>)
+          </button>
+        </div>
+
+        <!-- TAB 1: Scripts of this Author -->
+        <div class="pub-tab-content active" id="pubTabContentScripts">
+          <div class="pub-scripts-hint">
+            <i class="fa-solid fa-filter"></i> Показаны скрипты только этого автора. Нажмите на скрипт для просмотра кода и проверки.
+          </div>
+          <div class="scripts-grid pub-scripts-grid" id="pubScriptsList">
+            <!-- Author's scripts rendered dynamically -->
+          </div>
+          <div class="empty-state hidden" id="pubEmptyScripts">
+            <div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div>
+            <h3>У автора пока нет опубликованных скриптов</h3>
+            <p>Как только автор загрузит скрипт и он пройдет проверку, он появится здесь.</p>
+          </div>
+        </div>
+
+        <!-- TAB 2: Player Reviews & Rating -->
+        <div class="pub-tab-content hidden" id="pubTabContentReviews">
+          <!-- Add Review Section -->
+          <div class="leave-review-card" id="leaveReviewCard">
+            <h4 class="leave-review-title">
+              <i class="fa-solid fa-star-half-stroke"></i> Оставить отзыв об авторе
+            </h4>
+            
+            <div class="rating-picker-box">
+              <span class="picker-label">Ваша оценка:</span>
+              <div class="star-rating-picker" id="reviewStarPicker" data-rating="5">
+                <i class="fa-solid fa-star star-pick active" data-val="1"></i>
+                <i class="fa-solid fa-star star-pick active" data-val="2"></i>
+                <i class="fa-solid fa-star star-pick active" data-val="3"></i>
+                <i class="fa-solid fa-star star-pick active" data-val="4"></i>
+                <i class="fa-solid fa-star star-pick active" data-val="5"></i>
+                <span class="rating-text-hint" id="ratingTextHint">Отлично (5/5)</span>
+              </div>
+            </div>
+
+            <form id="pubReviewForm" class="pub-review-form">
+              <textarea 
+                id="pubReviewTextInput" 
+                class="form-input review-textarea" 
+                rows="3" 
+                placeholder="Напишите честный отзыв об авторе, качестве его скриптов или опыте общения..." 
+                required
+                minlength="3"
+                maxlength="500"
+              ></textarea>
+              <div class="review-form-actions">
+                <span class="review-char-count" id="reviewCharCount">0 / 500</span>
+                <button type="submit" class="btn btn-primary btn-sm" id="pubSubmitReviewBtn">
+                  <i class="fa-solid fa-paper-plane"></i> Опубликовать отзыв
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="self-review-notice hidden" id="selfReviewNotice">
+            <i class="fa-solid fa-circle-info"></i> Это ваш собственный профиль. Вы не можете оставлять отзывы самому себе.
+          </div>
+
+          <!-- Reviews Feed -->
+          <div class="pub-reviews-feed-header">
+            <h4><i class="fa-solid fa-list-check"></i> Все отзывы пользователей</h4>
+          </div>
+
+          <div class="pub-reviews-feed" id="pubReviewsList">
+            <!-- Rendered dynamically -->
+          </div>
+
+          <div class="empty-state hidden" id="pubEmptyReviews">
+            <div class="empty-icon"><i class="fa-regular fa-comment-dots"></i></div>
+            <h3>Отзывов пока нет</h3>
+            <p>Будьте первым, кто оставит отзыв и оценит работу этого автора!</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Public Tunnel Share Modal -->
+  <div class="modal-overlay hidden" id="tunnelShareModal">
+    <div class="modal-dialog modal-small">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge"><i class="fa-solid fa-globe"></i> ОНЛАЙН ДОСТУП</div>
+          <h2 class="modal-title">Публичная ссылка для друзей</h2>
+        </div>
+        <button class="modal-close-btn" id="closeTunnelModalBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Любой человек в интернете может перейти по этой ссылке, зарегистрировать свой аккаунт, выкладывать скрипты и ставить лайки. Все данные сохраняются на вашем компьютере!
+        </p>
+        <div class="tunnel-link-box">
+          <input type="text" id="publicUrlInput" class="form-input" readonly value="Запуск туннеля...">
+          <button class="btn btn-primary" id="copyPublicUrlBtn">
+            <i class="fa-regular fa-copy"></i> Копировать
+          </button>
+        </div>
+        <div class="tunnel-info-box">
+          <i class="fa-solid fa-shield-halved"></i> Защищенное соединение Cloudflare HTTPS (бесплатно)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen Image Zoom Overlay -->
+  <div class="image-zoom-overlay hidden" id="imageZoomOverlay">
+    <button class="zoom-close-btn" id="closeZoomBtn"><i class="fa-solid fa-xmark"></i></button>
+    <img src="" alt="Enlarged screenshot" id="enlargedImage">
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts (obfuscated) -->
+  <script src="app.obf.js"></script>
+</body>
+</html>
