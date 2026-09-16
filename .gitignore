@@ -3,7 +3,6 @@ node_modules/
 .env.local
 .tunnel.log
 cloudflared.exe
-app.obf.js
 uploads/*
 !uploads/.gitkeep
 data/

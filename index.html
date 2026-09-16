@@ -16,114 +16,6 @@
   
   <link rel="stylesheet" href="styles.css">
 
-  <!-- DevTools Protection (Maximum) -->
-  <script>
-    (function() {
-      'use strict';
-
-      // === BLOCK 1: Kill all console methods ===
-      var _noop = function() { return undefined; };
-      var _consoleMethods = ['log','debug','info','warn','error','table','dir','dirxml',
-        'trace','group','groupCollapsed','groupEnd','time','timeEnd','timeLog',
-        'assert','count','countReset','profile','profileEnd','clear','exception'];
-      _consoleMethods.forEach(function(m) {
-        try { Object.defineProperty(console, m, { get: function(){ return _noop; }, set: function(){} }); } catch(e) {}
-      });
-      try {
-        Object.defineProperty(window, 'console', {
-          get: function() {
-            var fake = {};
-            _consoleMethods.forEach(function(m){ fake[m] = _noop; });
-            return fake;
-          },
-          set: function() {}
-        });
-      } catch(e) {}
-
-      // === BLOCK 2: Disable all keyboard shortcuts ===
-      function _blockKey(e) {
-        var k = e.key || '';
-        var kc = e.keyCode || e.which || 0;
-        // F12
-        if (kc === 123 || k === 'F12') { e.preventDefault(); e.stopImmediatePropagation(); return false; }
-        // Ctrl combos
-        if (e.ctrlKey) {
-          // Ctrl+Shift+I/J/C/K/E/M/Q/P
-          if (e.shiftKey && 'ijckemqpIJCKEMQP'.indexOf(k) !== -1) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
-          // Ctrl+U, Ctrl+S, Ctrl+A, Ctrl+P
-          if ('uUsSpPaA'.indexOf(k) !== -1) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
-        }
-        // Alt combos (Firefox DevTools)
-        if (e.altKey && (k === 'I' || k === 'i')) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
-      }
-      document.addEventListener('keydown', _blockKey, true);
-      window.addEventListener('keydown', _blockKey, true);
-
-      // === BLOCK 3: Disable right-click ===
-      document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; }, true);
-
-      // === BLOCK 4: INFINITE DEBUGGER LOOP (main weapon) ===
-      // When DevTools is open and NOT paused, this runs every 50ms
-      // When DevTools IS open, it hits breakpoint continuously — page becomes unusable
-      function _infiniteDebugger() {
-        (function _d(){ _d['constructor']('debugger')(); })['constructor']('debugger')();
-      }
-
-      // Also standard inline debugger
-      function _trap() {
-        try {
-          var s = performance.now();
-          (function(){ debugger; })();
-          if (performance.now() - s > 80) {
-            // DevTools was open — nuke the page
-            document.open();
-            document.write('');
-            document.close();
-            window.location.replace('about:blank');
-          }
-        } catch(e) {}
-      }
-
-      // Run traps at high frequency — makes DevTools completely freeze
-      setInterval(function() {
-        try { _infiniteDebugger(); } catch(e) {}
-      }, 50);
-
-      setInterval(_trap, 300);
-
-      // === BLOCK 5: Window size DevTools detector ===
-      var _devOpen = false;
-      function _sizeCheck() {
-        var w = window.outerWidth - window.innerWidth;
-        var h = window.outerHeight - window.innerHeight;
-        if (w > 150 || h > 150) {
-          if (!_devOpen) {
-            _devOpen = true;
-            document.open(); document.write(''); document.close();
-            window.location.replace('about:blank');
-          }
-        } else {
-          _devOpen = false;
-        }
-      }
-      setInterval(_sizeCheck, 500);
-
-      // === BLOCK 6: Disable text selection (makes scraping harder) ===
-      document.addEventListener('selectstart', function(e) { e.preventDefault(); return false; });
-      document.addEventListener('dragstart', function(e) { e.preventDefault(); return false; });
-
-      // === BLOCK 7: Detect devtools via toString trick ===
-      var _img = new Image();
-      Object.defineProperty(_img, 'id', {
-        get: function() {
-          // This fires when devtools tries to display the object
-          document.open(); document.write(''); document.close();
-          window.location.replace('about:blank');
-        }
-      });
-
-    })();
-  </script>
 </head>
 
 
@@ -1197,8 +1089,8 @@
   <!-- Animated aurora backdrop -->
   <div class="aurora" aria-hidden="true"></div>
 
-  <!-- Scripts (obfuscated) -->
-  <script src="app.obf.js"></script>
+  <!-- Main Application Script -->
+  <script src="app.js"></script>
 
   <!-- Polish: scroll reveal, navbar state, cursor glow -->
   <script>
