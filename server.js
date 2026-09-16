@@ -39,6 +39,10 @@ app.use((req, res, next) => {
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(__dirname, { etag: false, maxAge: 0 }));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // ============================================================================
 // DATABASE LAYER (JSON FILE ON HOST COMPUTER)
 // ============================================================================
