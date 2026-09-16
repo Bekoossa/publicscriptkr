@@ -474,11 +474,13 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // POST /api/migrate — one-time migration (protected)
+    // POST /api/migrate — works when DB is empty OR with admin auth
     if (path === '/api/migrate' && method === 'POST') {
-      if (!req.user || !isModerator(req.user)) return res.status(403).json({ error: 'Admin only' });
-      const { data } = req.body;
+      const { data, secret } = req.body;
       if (!data || !data.users) return res.status(400).json({ error: 'Invalid data' });
+      const isAdmin = req.user && isModerator(req.user);
+      const isEmpty = db.users.length === 0 && db.scripts.length === 0;
+      if (!isAdmin && !isEmpty) return res.status(403).json({ error: 'Admin only or DB must be empty' });
       Object.assign(db, data);
       if (!db.notifications) db.notifications = [];
       if (!db.userReviews) db.userReviews = [];
@@ -487,6 +489,7 @@ module.exports = async function handler(req, res) {
       db.users.forEach(u => {
         if ((u.username || '').toLowerCase() === 'kerryrbq') u.badge = 'ADMIN';
         if (!u.bio) u.bio = 'PublicScriptKR user.';
+        delete u.lastIp;
       });
       db.scripts.forEach(s => {
         if (!s.status) s.status = 'pending';
