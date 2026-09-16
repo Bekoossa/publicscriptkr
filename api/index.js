@@ -474,6 +474,28 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    // POST /api/migrate — one-time migration (protected)
+    if (path === '/api/migrate' && method === 'POST') {
+      if (!req.user || !isModerator(req.user)) return res.status(403).json({ error: 'Admin only' });
+      const { data } = req.body;
+      if (!data || !data.users) return res.status(400).json({ error: 'Invalid data' });
+      Object.assign(db, data);
+      if (!db.notifications) db.notifications = [];
+      if (!db.userReviews) db.userReviews = [];
+      if (!db.bannedIps) db.bannedIps = [];
+      if (!db.tokens) db.tokens = {};
+      db.users.forEach(u => {
+        if ((u.username || '').toLowerCase() === 'kerryrbq') u.badge = 'ADMIN';
+        if (!u.bio) u.bio = 'PublicScriptKR user.';
+      });
+      db.scripts.forEach(s => {
+        if (!s.status) s.status = 'pending';
+        if (!s.viewedIps) s.viewedIps = {};
+      });
+      await saveDB(kv);
+      return res.json({ message: 'Migration complete', users: db.users.length, scripts: db.scripts.length });
+    }
+
     return res.status(404).json({ error: 'Not found' });
 
   } catch (err) {
