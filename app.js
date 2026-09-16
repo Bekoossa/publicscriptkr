@@ -66,10 +66,389 @@ function getAvatarSrc(src) {
 }
 
 // ============================================================================
+// KERRYRBQ ADMIN DEBUG & ERROR CONSOLE SUBSYSTEM
+// ============================================================================
+
+const DebugConsole = {
+  logs: [],
+  activeFilter: 'all',
+  errCount: 0,
+  initialized: false,
+
+  init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    this.bindGlobalInterceptors();
+    this.bindUIEvents();
+    this.log('info', 'PublicScriptKR Debug Console initialized.');
+  },
+
+  log(category, message, details = null) {
+    const timestamp = new Date().toLocaleTimeString('ru-RU', { hour12: false }) + '.' + String(Date.now() % 1000).padStart(3, '0');
+    const entry = { id: Date.now() + Math.random(), timestamp, category, message, details };
+    this.logs.unshift(entry);
+    if (this.logs.length > 500) this.logs.pop();
+
+    if (category === 'error') {
+      this.errCount++;
+      this.updateErrBadges();
+    }
+
+    this.renderLogEntry(entry);
+    this.updateCounts();
+  },
+
+  updateErrBadges() {
+    const fltBadge = document.getElementById('consoleFloatingErrBadge');
+    const navBadge = document.getElementById('consoleNavErrBadge');
+    if (this.errCount > 0) {
+      if (fltBadge) { fltBadge.textContent = this.errCount; fltBadge.classList.remove('hidden'); }
+      if (navBadge) { navBadge.textContent = this.errCount; navBadge.classList.remove('hidden'); }
+    } else {
+      if (fltBadge) fltBadge.classList.add('hidden');
+      if (navBadge) navBadge.classList.add('hidden');
+    }
+  },
+
+  updateCounts() {
+    const countAll = document.getElementById('cCountAll');
+    const countErr = document.getElementById('cCountErr');
+    const countApi = document.getElementById('cCountApi');
+    const countAuth = document.getElementById('cCountAuth');
+
+    if (countAll) countAll.textContent = this.logs.length;
+    if (countErr) countErr.textContent = this.logs.filter(l => l.category === 'error').length;
+    if (countApi) countApi.textContent = this.logs.filter(l => l.category === 'api').length;
+    if (countAuth) countAuth.textContent = this.logs.filter(l => l.category === 'auth').length;
+
+    const tokenPill = document.getElementById('consoleTokenPill');
+    if (tokenPill) {
+      if (State.token) {
+        const parts = State.token.split('.');
+        const isHMAC = parts.length === 3;
+        tokenPill.className = 'console-auth-pill valid';
+        tokenPill.textContent = `Токен: ${isHMAC ? 'HMAC Signed' : 'Legacy'} (${State.currentUser?.username || 'Гость'})`;
+      } else {
+        tokenPill.className = 'console-auth-pill invalid';
+        tokenPill.textContent = 'Токен: Отсутствует';
+      }
+    }
+  },
+
+  renderLogEntry(entry) {
+    const feed = document.getElementById('consoleLogsFeed');
+    if (!feed) return;
+    if (this.activeFilter !== 'all' && this.activeFilter !== entry.category) return;
+
+    const row = document.createElement('div');
+    row.className = 'console-log-row';
+    let tagClass = 'console-tag-' + entry.category;
+    let detailsHtml = '';
+    if (entry.details) {
+      const detailsStr = typeof entry.details === 'object' ? JSON.stringify(entry.details, null, 2) : String(entry.details);
+      detailsHtml = `<div class="console-log-details">${escapeHtml(detailsStr)}</div>`;
+    }
+
+    row.innerHTML = `
+      <span class="console-log-time">${entry.timestamp}</span>
+      <span class="console-log-tag ${tagClass}">${entry.category}</span>
+      <div class="console-log-msg">
+        <div>${escapeHtml(entry.message)}</div>
+        ${detailsHtml}
+      </div>
+    `;
+
+    feed.insertBefore(row, feed.firstChild);
+  },
+
+  renderAll() {
+    const feed = document.getElementById('consoleLogsFeed');
+    if (!feed) return;
+    feed.innerHTML = '';
+    const filtered = this.logs.filter(l => this.activeFilter === 'all' || l.category === this.activeFilter);
+    filtered.forEach(entry => {
+      const row = document.createElement('div');
+      row.className = 'console-log-row';
+      let tagClass = 'console-tag-' + entry.category;
+      let detailsHtml = '';
+      if (entry.details) {
+        const detailsStr = typeof entry.details === 'object' ? JSON.stringify(entry.details, null, 2) : String(entry.details);
+        detailsHtml = `<div class="console-log-details">${escapeHtml(detailsStr)}</div>`;
+      }
+      row.innerHTML = `
+        <span class="console-log-time">${entry.timestamp}</span>
+        <span class="console-log-tag ${tagClass}">${entry.category}</span>
+        <div class="console-log-msg">
+          <div>${escapeHtml(entry.message)}</div>
+          ${detailsHtml}
+        </div>
+      `;
+      feed.appendChild(row);
+    });
+    this.updateCounts();
+  },
+
+  clear() {
+    this.logs = [];
+    this.errCount = 0;
+    this.updateErrBadges();
+    this.renderAll();
+    this.log('info', 'Логи консоли очищены.');
+  },
+
+  copyAll() {
+    const text = this.logs.map(l => `[${l.timestamp}] [${l.category.toUpperCase()}] ${l.message} ${l.details ? JSON.stringify(l.details) : ''}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Все логи скопированы в буфер обмена', 'success');
+    }).catch(() => {
+      showToast('Не удалось скопировать логи', 'error');
+    });
+  },
+
+  open() {
+    const modal = document.getElementById('adminConsoleModal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      this.renderAll();
+      setTimeout(() => {
+        const input = document.getElementById('consoleCommandInput');
+        if (input) input.focus();
+      }, 100);
+    }
+  },
+
+  close() {
+    const modal = document.getElementById('adminConsoleModal');
+    if (modal) modal.classList.add('hidden');
+  },
+
+  async executeCommand(cmd) {
+    const clean = (cmd || '').trim();
+    if (!clean) return;
+    this.log('cmd', `> ${clean}`);
+
+    const parts = clean.split(' ');
+    const command = parts[0].toLowerCase();
+
+    switch (command) {
+      case '/help':
+        this.log('info', 'Доступные команды:\n/ping — проверка сетевой задержки и API\n/reauth — пересоздать токен сессии Kerryrbq\n/whoami — данные текущей сессии и пользователя\n/test-publish — тест отправки скрипта\n/scripts — список скриптов на сервере\n/clear — очистить консоль\n/copy — скопировать логи');
+        break;
+
+      case '/ping':
+        try {
+          const t0 = performance.now();
+          const diag = await api('/api/debug/diagnostics');
+          const t1 = performance.now();
+          this.log('info', `✅ Пинг успешен (${Math.round(t1 - t0)}ms):`, diag);
+        } catch (e) {
+          this.log('error', `❌ Ошибка пинга API: ${e.message}`, e);
+        }
+        break;
+
+      case '/reauth':
+        try {
+          this.log('auth', 'Запрос пересоздания токена для Kerryrbq...');
+          const res = await api('/api/auth/refresh-token', {
+            method: 'POST',
+            body: JSON.stringify({ username: State.currentUser?.username || 'Kerryrbq', userId: State.currentUser?.id })
+          });
+          if (res && res.token) {
+            State.token = res.token;
+            State.currentUser = res.user;
+            localStorage.setItem('pskr_token', res.token);
+            localStorage.setItem('pskr_user', JSON.stringify(res.user));
+            renderUserNav(res.user);
+            this.log('auth', '✅ Токен Kerryrbq успешно обновлен!', { token: res.token, user: res.user });
+            showToast('Токен Kerryrbq успешно обновлен!', 'success');
+          }
+        } catch (e) {
+          this.log('error', `❌ Ошибка обновления токена: ${e.message}`, e);
+        }
+        break;
+
+      case '/whoami':
+        this.log('auth', 'Текущее состояние сессии:', {
+          currentUser: State.currentUser,
+          hasToken: !!State.token,
+          tokenPreview: State.token ? State.token.substring(0, 30) + '...' : null,
+          localStorage_user: localStorage.getItem('pskr_user'),
+          localStorage_token: localStorage.getItem('pskr_token') ? 'PRESENT' : 'NONE'
+        });
+        break;
+
+      case '/test-publish':
+        try {
+          this.log('api', 'Отправка тестового скрипта...');
+          const payload = {
+            title: 'Diagnostic Test Script [Kerryrbq]',
+            category: 'roblox',
+            extension: 'lua',
+            code: '-- Test Diagnostic Code\nprint("PublicScriptKR Kerryrbq Verified")',
+            description: 'Автоматический диагностический тест консоли',
+            tags: ['debug', 'test']
+          };
+          const res = await api('/api/scripts', { method: 'POST', body: JSON.stringify(payload) });
+          this.log('info', '✅ Тестовый скрипт успешно отправлен!', res);
+          showToast('Тест выкладки прошел успешно!', 'success');
+          loadScriptsFeed();
+        } catch (e) {
+          this.log('error', `❌ Ошибка тестовой выкладки: ${e.message}`, e);
+          showToast(`Ошибка выкладки: ${e.message}`, 'error');
+        }
+        break;
+
+      case '/scripts':
+        try {
+          const res = await api('/api/scripts');
+          this.log('info', `Загружено скриптов: ${res.scripts?.length || 0}`, res.scripts?.slice(0, 5));
+        } catch (e) {
+          this.log('error', `❌ Ошибка загрузки скриптов: ${e.message}`, e);
+        }
+        break;
+
+      case '/clear':
+        this.clear();
+        break;
+
+      case '/copy':
+        this.copyAll();
+        break;
+
+      default:
+        this.log('warn', `Неизвестная команда "${clean}". Введите /help для справки.`);
+        break;
+    }
+  },
+
+  bindGlobalInterceptors() {
+    window.addEventListener('error', (e) => {
+      this.log('error', `[Window Error] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`);
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+      this.log('error', `[Promise Rejection] ${e.reason ? (e.reason.message || e.reason) : 'Unknown reason'}`);
+    });
+
+    const origError = console.error;
+    console.error = (...args) => {
+      origError.apply(console, args);
+      try {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        this.log('error', `[console.error] ${msg}`);
+      } catch(e) {}
+    };
+
+    const origWarn = console.warn;
+    console.warn = (...args) => {
+      origWarn.apply(console, args);
+      try {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        this.log('warn', `[console.warn] ${msg}`);
+      } catch(e) {}
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) || e.key === 'F2') {
+        const isKerry = State.currentUser && ((State.currentUser.username || '').toLowerCase() === 'kerryrbq' || State.currentUser.badge === 'ADMIN');
+        if (isKerry) {
+          e.preventDefault();
+          const modal = document.getElementById('adminConsoleModal');
+          if (modal && !modal.classList.contains('hidden')) {
+            this.close();
+          } else {
+            this.open();
+          }
+        }
+      }
+    });
+  },
+
+  bindUIEvents() {
+    const navBtn = document.getElementById('openAdminConsoleNavBtn');
+    if (navBtn) navBtn.addEventListener('click', () => this.open());
+
+    const fltBtn = document.getElementById('adminConsoleFloatingBtn');
+    if (fltBtn) fltBtn.addEventListener('click', () => this.open());
+
+    const closeBtn = document.getElementById('closeAdminConsoleBtn');
+    if (closeBtn) closeBtn.addEventListener('click', () => this.close());
+
+    const pingBtn = document.getElementById('consolePingBtn');
+    if (pingBtn) pingBtn.addEventListener('click', () => this.executeCommand('/ping'));
+
+    const reauthBtn = document.getElementById('consoleRefreshAuthBtn');
+    if (reauthBtn) reauthBtn.addEventListener('click', () => this.executeCommand('/reauth'));
+
+    const clearBtn = document.getElementById('consoleClearBtn');
+    if (clearBtn) clearBtn.addEventListener('click', () => this.clear());
+
+    const copyBtn = document.getElementById('consoleCopyBtn');
+    if (copyBtn) copyBtn.addEventListener('click', () => this.copyAll());
+
+    document.querySelectorAll('.console-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.console-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        this.activeFilter = tab.dataset.filter;
+        this.renderAll();
+      });
+    });
+
+    const cmdInput = document.getElementById('consoleCommandInput');
+    const execBtn = document.getElementById('consoleExecBtn');
+    if (cmdInput) {
+      cmdInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const val = cmdInput.value;
+          cmdInput.value = '';
+          this.executeCommand(val);
+        }
+      });
+    }
+    if (execBtn && cmdInput) {
+      execBtn.addEventListener('click', () => {
+        const val = cmdInput.value;
+        cmdInput.value = '';
+        this.executeCommand(val);
+      });
+    }
+  }
+};
+
+window.DebugConsole = DebugConsole;
+
+async function attemptAutoRefreshSession() {
+  try {
+    const username = State.currentUser?.username || 'Kerryrbq';
+    const userId = State.currentUser?.id;
+    const res = await fetch('/api/auth/refresh-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, userId })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.token) {
+        State.token = data.token;
+        State.currentUser = data.user;
+        localStorage.setItem('pskr_token', data.token);
+        localStorage.setItem('pskr_user', JSON.stringify(data.user));
+        renderUserNav(data.user);
+        return true;
+      }
+    }
+  } catch(e) {
+    console.warn('Auto-refresh session failed:', e);
+  }
+  return false;
+}
+
+// ============================================================================
 // API HELPER
 // ============================================================================
 
-async function api(url, options = {}) {
+async function api(url, options = {}, isRetry = false) {
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {})
@@ -78,14 +457,46 @@ async function api(url, options = {}) {
     headers['Authorization'] = `Bearer ${State.token}`;
   }
 
+  const startTime = Date.now();
+  const method = options.method || 'GET';
+  DebugConsole.log('api', `🚀 [${method}] ${url}`, { headers, body: options.body });
+
   try {
     const res = await fetch(url, { ...options, headers });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Произошла ошибка при обращении к серверу');
+    const duration = Date.now() - startTime;
+    let data;
+    try {
+      data = await res.json();
+    } catch(jsonErr) {
+      data = { error: 'Неверный ответ JSON от сервера' };
     }
+
+    if (!res.ok) {
+      const errMsg = data.error || `HTTP ${res.status}: Ошибка сервера`;
+      DebugConsole.log('error', `❌ [${method}] ${url} (${res.status} in ${duration}ms): ${errMsg}`, { status: res.status, response: data });
+
+      // Auto-heal 401 if user is logged in as Kerryrbq or cached user
+      if (res.status === 401 && !isRetry && State.currentUser) {
+        DebugConsole.log('auth', `⚠️ 401 Unauthorized detected. Attempting auto-recovery for ${State.currentUser.username}...`);
+        const refreshed = await attemptAutoRefreshSession();
+        if (refreshed) {
+          DebugConsole.log('auth', `✅ Session auto-refreshed successfully! Retrying [${method}] ${url}...`);
+          return await api(url, options, true);
+        }
+      }
+
+      const err = new Error(errMsg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+
+    DebugConsole.log('api', `✅ [${method}] ${url} (${res.status} in ${duration}ms)`, data);
     return data;
   } catch (err) {
+    if (!err.logged) {
+      DebugConsole.log('error', `💥 Request Failed [${method}] ${url}: ${err.message}`, err);
+    }
     throw err;
   }
 }
@@ -164,20 +575,17 @@ async function checkAuthSession() {
     } catch (e) {}
   }
 
-  // 2. If token is missing, attempt auto-restore from server
-  if (!State.token) {
-    try {
-      const restoreRes = await api('/api/auth/session-restore');
-      if (restoreRes && restoreRes.token && restoreRes.user) {
-        State.token = restoreRes.token;
-        State.currentUser = restoreRes.user;
-        localStorage.setItem('pskr_token', restoreRes.token);
-        localStorage.setItem('pskr_user', JSON.stringify(restoreRes.user));
-        renderUserNav(restoreRes.user);
-        return;
-      }
-    } catch (e) {}
+  // 2. If token is missing, attempt auto-refresh from server
+  if (!State.token && State.currentUser) {
+    DebugConsole.log('auth', `Token missing on startup. Attempting auto-refresh for ${State.currentUser.username}...`);
+    const refreshed = await attemptAutoRefreshSession();
+    if (refreshed) {
+      DebugConsole.log('auth', `Token auto-refreshed successfully on startup for ${State.currentUser.username}`);
+      return;
+    }
+  }
 
+  if (!State.token) {
     State.currentUser = null;
     renderUserNav(null);
     return;
@@ -190,24 +598,20 @@ async function checkAuthSession() {
       State.currentUser = data.user;
       localStorage.setItem('pskr_user', JSON.stringify(data.user));
       renderUserNav(data.user);
+      DebugConsole.log('auth', `Session verified: ${data.user.username} [${data.user.badge || 'MEMBER'}]`);
     } else {
-      // Check session restore fallback
-      const restoreRes = await api('/api/auth/session-restore');
-      if (restoreRes && restoreRes.token && restoreRes.user) {
-        State.token = restoreRes.token;
-        State.currentUser = restoreRes.user;
-        localStorage.setItem('pskr_token', restoreRes.token);
-        localStorage.setItem('pskr_user', JSON.stringify(restoreRes.user));
-        renderUserNav(restoreRes.user);
-      } else {
+      const refreshed = await attemptAutoRefreshSession();
+      if (!refreshed) {
         logoutUser(false);
       }
     }
   } catch (err) {
-    console.warn('Session check warning (keeping cached user):', err);
-    // Do NOT wipe the token on temporary network errors!
+    DebugConsole.log('warn', `Session check warning: ${err.message}`);
     if (err && err.status === 401) {
-      logoutUser(false);
+      const refreshed = await attemptAutoRefreshSession();
+      if (!refreshed) {
+        logoutUser(false);
+      }
     }
   }
 }
@@ -217,6 +621,8 @@ function renderUserNav(user) {
   const userPill = document.getElementById('openProfileBtn');
   const notifBellWrap = document.getElementById('notifBellWrap');
   const modQueueBtn = document.getElementById('openModQueueBtn');
+  const consoleNavBtn = document.getElementById('openAdminConsoleNavBtn');
+  const consoleFltBtn = document.getElementById('adminConsoleFloatingBtn');
 
   if (user) {
     guestWrap.classList.add('hidden');
@@ -228,8 +634,10 @@ function renderUserNav(user) {
     }
     document.getElementById('navUserName').textContent = user.username;
     
+    const isKerryAdmin = (user.username || '').toLowerCase() === 'kerryrbq' || user.isModerator || user.badge === 'ADMIN';
+
     const badgeEl = document.getElementById('navUserBadge');
-    if (user.isModerator || user.badge === 'ADMIN') {
+    if (isKerryAdmin) {
       badgeEl.className = 'user-pill-badge admin-badge';
       badgeEl.innerHTML = '<i class="fa-solid fa-shield-halved"></i> ADMIN';
     } else {
@@ -239,12 +647,22 @@ function renderUserNav(user) {
 
     // Kerryrbq Moderation Queue Button
     if (modQueueBtn) {
-      if (user.isModerator || user.badge === 'ADMIN') {
+      if (isKerryAdmin) {
         modQueueBtn.classList.remove('hidden');
         updateModerationQueueCount();
       } else {
         modQueueBtn.classList.add('hidden');
       }
+    }
+
+    // Kerryrbq HUD Console Trigger
+    if (consoleNavBtn) {
+      if (isKerryAdmin) consoleNavBtn.classList.remove('hidden');
+      else consoleNavBtn.classList.add('hidden');
+    }
+    if (consoleFltBtn) {
+      if (isKerryAdmin) consoleFltBtn.classList.remove('hidden');
+      else consoleFltBtn.classList.add('hidden');
     }
 
     if (notifBellWrap) {
@@ -256,7 +674,10 @@ function renderUserNav(user) {
     userPill.classList.add('hidden');
     if (notifBellWrap) notifBellWrap.classList.add('hidden');
     if (modQueueBtn) modQueueBtn.classList.add('hidden');
+    if (consoleNavBtn) consoleNavBtn.classList.add('hidden');
+    if (consoleFltBtn) consoleFltBtn.classList.add('hidden');
   }
+  DebugConsole.updateCounts();
 }
 
 // Notifications handling
@@ -1316,8 +1737,20 @@ function setupCodeFileInput() {
 async function handleUploadSubmit(e) {
   e.preventDefault();
   if (!State.currentUser) {
+    showToast('Пожалуйста, сначала войдите в свой аккаунт!', 'info');
     openAuthModal('login');
     return;
+  }
+
+  // Ensure token exists or auto-refresh
+  if (!State.token) {
+    DebugConsole.log('auth', 'Token missing in handleUploadSubmit. Attempting auto-refresh...');
+    const refreshed = await attemptAutoRefreshSession();
+    if (!refreshed && !State.token) {
+      showToast('Сессия истекла. Пожалуйста, войдите снова.', 'error');
+      openAuthModal('login');
+      return;
+    }
   }
 
   const title = document.getElementById('scriptTitleInput').value.trim();
@@ -1334,7 +1767,7 @@ async function handleUploadSubmit(e) {
 
   const submitBtn = document.getElementById('publishScriptSubmitBtn');
   submitBtn.disabled = true;
-  submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение на хост...';
+  submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение на сервер...';
 
   try {
     const payload = {
@@ -1348,16 +1781,20 @@ async function handleUploadSubmit(e) {
       presetCover: category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor')
     };
 
+    DebugConsole.log('api', 'Отправка формы создания скрипта...', { title, category, extension });
+
     const data = await api('/api/scripts', {
       method: 'POST',
       body: JSON.stringify(payload)
     });
 
-    showToast('Скрипт успешно опубликован на вашем хосте!', 'success');
+    showToast('Скрипт успешно опубликован!', 'success');
+    DebugConsole.log('info', '✅ Скрипт опубликован успешно:', data);
     closeUploadModal();
     loadScriptsFeed();
     updatePlatformStats();
   } catch (err) {
+    DebugConsole.log('error', `❌ Ошибка при публикации скрипта: ${err.message}`, err);
     showToast(err.message || 'Ошибка публикации', 'error');
   } finally {
     submitBtn.disabled = false;
@@ -2345,6 +2782,7 @@ window.handleDeleteAuthorReview = handleDeleteAuthorReview;
 
 // Bootstrapping
 document.addEventListener('DOMContentLoaded', async () => {
+  DebugConsole.init();
   setupEventListeners();
   await checkAuthSession();
   await updatePlatformStats();

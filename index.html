@@ -87,6 +87,13 @@
           <span class="mod-queue-badge hidden" id="modQueueBadge">0</span>
         </button>
 
+        <!-- Admin Error & Debug Console Button (Kerryrbq) -->
+        <button class="btn btn-console-nav hidden" id="openAdminConsoleNavBtn" title="Консоль отладки и ошибок Kerryrbq">
+          <i class="fa-solid fa-terminal"></i>
+          <span>HUD Console</span>
+          <span class="console-err-badge-nav hidden" id="consoleNavErrBadge">0</span>
+        </button>
+
         <button class="btn btn-primary" id="openUploadModalBtn">
           <i class="fa-solid fa-cloud-arrow-up"></i>
           <span>Опубликовать</span>
@@ -1076,6 +1083,69 @@
       </div>
     </div>
   </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: KERRYRBQ ADMIN DEBUG & ERROR CONSOLE -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="adminConsoleModal">
+    <div class="modal-dialog modal-large modal-admin-console">
+      <div class="modal-header console-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge console-badge"><i class="fa-solid fa-terminal"></i> KERRYRBQ DEV CONSOLE</div>
+          <h2 class="modal-title">Консоль отладки и ошибок</h2>
+          <span class="console-status-pill" id="consoleServerStatus">● Serverless / Online</span>
+        </div>
+        <div class="modal-header-actions">
+          <button class="btn btn-secondary btn-sm" id="consolePingBtn" title="Проверить связь с сервером">
+            <i class="fa-solid fa-bolt"></i> Пинг API
+          </button>
+          <button class="btn btn-secondary btn-sm" id="consoleRefreshAuthBtn" title="Пересоздать и обновить токен сессии">
+            <i class="fa-solid fa-key"></i> Обновить токен
+          </button>
+          <button class="btn btn-secondary btn-sm" id="consoleClearBtn" title="Очистить все логи">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+          <button class="btn btn-secondary btn-sm" id="consoleCopyBtn" title="Копировать логи в буфер">
+            <i class="fa-solid fa-copy"></i>
+          </button>
+          <button class="modal-close-btn" id="closeAdminConsoleBtn" aria-label="Закрыть">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="console-toolbar">
+        <div class="console-filter-tabs">
+          <button class="console-tab active" data-filter="all">Все (<span id="cCountAll">0</span>)</button>
+          <button class="console-tab" data-filter="error">Ошибки (<span id="cCountErr">0</span>)</button>
+          <button class="console-tab" data-filter="api">Сеть / API (<span id="cCountApi">0</span>)</button>
+          <button class="console-tab" data-filter="auth">Авторизация (<span id="cCountAuth">0</span>)</button>
+        </div>
+        <div class="console-auth-quick-info" id="consoleAuthQuickInfo">
+          <span class="console-auth-pill valid" id="consoleTokenPill">Токен: Загрузка...</span>
+        </div>
+      </div>
+
+      <div class="console-body" id="consoleLogsFeed">
+        <!-- Live log entries rendered dynamically -->
+      </div>
+
+      <div class="console-footer">
+        <div class="console-input-row">
+          <span class="console-prompt">&gt;</span>
+          <input type="text" id="consoleCommandInput" class="console-cmd-input" placeholder="Команды: /ping, /reauth, /whoami, /test-publish, /scripts, /clear, /help">
+          <button class="btn btn-primary btn-sm" id="consoleExecBtn">Выполнить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Kerryrbq Admin Console Trigger -->
+  <button class="admin-console-floating-btn hidden" id="adminConsoleFloatingBtn" title="Консоль ошибок Kerryrbq (Ctrl+Shift+D)">
+    <i class="fa-solid fa-terminal"></i>
+    <span class="console-flt-label">DEV CONSOLE</span>
+    <span class="console-err-badge hidden" id="consoleFloatingErrBadge">0</span>
+  </button>
 
   <!-- Fullscreen Image Zoom Overlay -->
   <div class="image-zoom-overlay hidden" id="imageZoomOverlay">
