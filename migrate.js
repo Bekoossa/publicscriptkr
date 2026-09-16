@@ -8,6 +8,11 @@ async function migrate() {
   console.log('Reading local database...');
   const raw = fs.readFileSync(DB_PATH, 'utf-8');
   const data = JSON.parse(raw);
+  if (data.scripts) {
+    data.scripts.forEach(s => {
+      if (!s.status) s.status = 'verified';
+    });
+  }
   console.log(`Found ${data.users.length} users, ${data.scripts.length} scripts`);
 
   console.log('Pushing to Vercel KV...');

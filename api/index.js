@@ -133,12 +133,12 @@ module.exports = async function handler(req, res) {
       const { category, search, sort, status, authorId, all } = Object.fromEntries(url.searchParams);
       let list = [...db.scripts];
       if (status) {
-        list = list.filter(s => (s.status || 'pending') === status);
+        list = list.filter(s => (s.status || 'verified') === status);
       } else if (!all) {
         if (authorId) {
           list = list.filter(s => s.authorId === authorId);
         } else if (!req.user || !isModerator(req.user)) {
-          list = list.filter(s => (s.status || 'pending') === 'verified');
+          list = list.filter(s => (s.status || 'verified') === 'verified');
         }
       }
       if (category && category !== 'all') {
