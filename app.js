@@ -901,7 +901,20 @@ async function loadScriptsFeed() {
     params.set('sort', State.sortBy);
 
     const data = await api(`/api/scripts?${params.toString()}`);
-    const scripts = data.scripts || [];
+    let scripts = data.scripts || [];
+
+    // Merge with local published scripts to prevent loss across serverless container restarts
+    const localScripts = getLocalPublishedScripts();
+    const existingIds = new Set(scripts.map(s => s.id));
+    localScripts.forEach(ls => {
+      if (!existingIds.has(ls.id)) {
+        scripts.unshift(ls);
+        existingIds.add(ls.id);
+      }
+    });
+
+    if (!State.scriptsCache) State.scriptsCache = new Map();
+    scripts.forEach(s => State.scriptsCache.set(s.id, s));
 
     if (counter) {
       counter.textContent = `Показано ${scripts.length} скриптов`;
@@ -999,7 +1012,7 @@ async function loadScriptsFeed() {
             return;
           }
         }
-        openScriptDetail(script.id);
+        openScriptDetail(script.id, script);
       });
 
       grid.appendChild(card);
@@ -1024,164 +1037,210 @@ function formatRelativeTime(ts) {
 // SCRIPT DETAIL MODAL & MODERATION
 // ============================================================================
 
-async function openScriptDetail(scriptId) {
+function saveLocalPublishedScript(script) {
+  if (!script || !script.id) return;
+  try {
+    const list = JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
+    const filtered = list.filter(s => s.id !== script.id);
+    filtered.unshift(script);
+    localStorage.setItem('pskr_local_scripts', JSON.stringify(filtered.slice(0, 100)));
+  } catch(e) {}
+}
+
+function getLocalPublishedScripts() {
+  try {
+    return JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
+  } catch(e) {
+    return [];
+  }
+}
+
+function renderScriptDetailModal(script) {
+  if (!script) return;
+  State.activeModalScript = script;
+
+  const modal = document.getElementById('scriptDetailModal');
+
+  document.getElementById('detailLangBadge').textContent = (script.extension || 'lua').toUpperCase();
+  document.getElementById('detailTitle').textContent = script.title;
+  
+  const authorAvatarEl = document.getElementById('detailAuthorAvatar');
+  authorAvatarEl.src = getAvatarSrc(script.authorAvatar);
+  authorAvatarEl.onerror = function() { this.src = DEFAULT_AVATARS[0]; };
+  authorAvatarEl.dataset.authorId = script.authorId || '';
+  authorAvatarEl.classList.add('clickable-author-avatar');
+  authorAvatarEl.title = `Открыть профиль ${script.author}`;
+  authorAvatarEl.onclick = () => {
+    if (script.authorId) openPublicProfile(script.authorId);
+  };
+
+  const authorNameEl = document.getElementById('detailAuthorName');
+  authorNameEl.textContent = script.author;
+  authorNameEl.dataset.authorId = script.authorId || '';
+  authorNameEl.classList.add('clickable-author');
+  authorNameEl.title = `Открыть профиль ${script.author}`;
+  authorNameEl.onclick = () => {
+    if (script.authorId) openPublicProfile(script.authorId);
+  };
+
+  document.getElementById('detailDate').innerHTML = `<i class="fa-regular fa-clock"></i> ${formatRelativeTime(script.createdAt)}`;
+
+  // Status Pill
+  const statusPill = document.getElementById('detailStatusPill');
+  const currentStatus = script.status || 'pending';
+
+  if (currentStatus === 'verified') {
+    statusPill.className = 'detail-status-pill verified';
+    statusPill.innerHTML = '<i class="fa-solid fa-circle-check"></i> <span>Проверено на запуск</span>';
+  } else if (currentStatus === 'rejected') {
+    statusPill.className = 'detail-status-pill rejected';
+    statusPill.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> <span>Отклонено</span>';
+  } else {
+    statusPill.className = 'detail-status-pill pending';
+    statusPill.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Не проверено на запуск</span>';
+  }
+
+  // Moderator Control Panel (Kerryrbq / Admins)
+  const modPanel = document.getElementById('moderatorActionPanel');
+  if (State.currentUser && State.currentUser.isModerator) {
+    modPanel.classList.remove('hidden');
+    const modStatusEl = document.getElementById('modCurrentStatus');
+    const statusMap = {
+      verified: '🟢 Проверено на запуск',
+      pending: '🟡 Не проверено на запуск',
+      rejected: '🔴 Отклонено'
+    };
+    modStatusEl.textContent = `Статус: ${statusMap[currentStatus] || currentStatus}`;
+  } else {
+    modPanel.classList.add('hidden');
+  }
+
+  // Like button
+  const likeBtn = document.getElementById('detailLikeBtn');
+  likeBtn.className = `engagement-badge like-action-btn ${script.isLiked ? 'liked' : ''}`;
+  likeBtn.querySelector('i').className = `${script.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart`;
+  document.getElementById('detailLikesCount').textContent = script.likesCount || 0;
+  document.getElementById('detailViewsCount').textContent = script.views || 0;
+  document.getElementById('detailCommentsCount').textContent = script.commentsCount || 0;
+  document.getElementById('commentsCountHeading').textContent = script.commentsCount || 0;
+
+  // Script Rating & Interactive Stars Bar
+  const ratingVal = typeof script.rating === 'number' ? script.rating : 5.0;
+  const ratingsCount = script.ratingsCount || 0;
+  const userRating = script.userRating || 0;
+
+  const ratingValEl = document.getElementById('detailRatingVal');
+  if (ratingValEl) ratingValEl.textContent = ratingVal.toFixed(1);
+
+  const ratingCountEl = document.getElementById('detailRatingCountVal');
+  if (ratingCountEl) ratingCountEl.textContent = `(${ratingsCount})`;
+
+  const barScoreEl = document.getElementById('barRatingScore');
+  if (barScoreEl) barScoreEl.textContent = `${ratingVal.toFixed(1)} ★`;
+
+  const barVotesEl = document.getElementById('barRatingVotes');
+  if (barVotesEl) barVotesEl.textContent = `(${ratingsCount} ${getRatingNoun(ratingsCount)})`;
+
+  const voteTagEl = document.getElementById('userVoteStatusTag');
+  if (voteTagEl) {
+    if (userRating > 0) {
+      voteTagEl.textContent = `Ваша оценка: ${userRating} ★`;
+      voteTagEl.style.background = 'rgba(16, 185, 129, 0.2)';
+      voteTagEl.style.color = '#34d399';
+    } else {
+      voteTagEl.textContent = 'Поставьте оценку';
+      voteTagEl.style.background = 'rgba(251, 191, 36, 0.15)';
+      voteTagEl.style.color = '#fde047';
+    }
+  }
+
+  const starBtns = document.querySelectorAll('#scriptStarsSelector .script-star-btn');
+  starBtns.forEach(btn => {
+    const val = parseInt(btn.dataset.val, 10);
+    if (val <= userRating) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  // Cover image
+  const coverSrc = getCardCover(script);
+  const coverTabBtn = document.getElementById('tabDetailCoverBtn');
+  const coverImgEl = document.getElementById('detailCoverImage');
+  if (coverImgEl) {
+    coverImgEl.src = coverSrc;
+    coverImgEl.onerror = function() { this.src = PRESET_COVERS['cyber-hub']; };
+  }
+  if (coverTabBtn) coverTabBtn.classList.remove('hidden');
+
+  // Description & tags
+  document.getElementById('detailDescriptionText').textContent = script.description;
+  const tagsContainer = document.getElementById('detailTagsList');
+  tagsContainer.innerHTML = (script.tags || []).map(t => `<span class="tag-pill">#${escapeHtml(t)}</span>`).join('');
+
+  // Code & unified line numbers (table layout eliminates any line misalignment)
+  const lines = (script.code || '').split('\n');
+  document.getElementById('codeFileName').textContent = `script.${script.extension || 'lua'}`;
+  document.getElementById('codeLinesCount').textContent = `${lines.length} строк`;
+
+  // Update tab counters
+  const codeTabCounter = document.getElementById('tabDetailCodeCount');
+  if (codeTabCounter) codeTabCounter.textContent = `${lines.length} строк`;
+  const commentsTabCounter = document.getElementById('tabDetailCommentsCount');
+  if (commentsTabCounter) commentsTabCounter.textContent = `${script.commentsCount || 0}`;
+
+  const isTxt = (script.extension === 'txt');
+  const rowsHtml = lines.map((line, idx) => {
+    const lineNum = idx + 1;
+    const highlighted = isTxt ? highlightTxtLine(line) : highlightLuaLine(line);
+    return `<div class="code-line"><span class="code-line-num" data-line="${lineNum}">${lineNum}</span><span class="code-line-text">${highlighted || '&nbsp;'}</span></div>`;
+  }).join('');
+
+  document.getElementById('detailCodeBox').innerHTML = rowsHtml;
+  document.getElementById('copyBtnText').textContent = 'Скопировать код';
+
+  // Switch to Code Tab by default (ensures code is immediately visible!)
+  switchDetailTab('code');
+
+  // Comments feed
+  renderComments(script.comments || [], script.authorId);
+
+  modal.classList.remove('hidden');
+}
+
+async function openScriptDetail(scriptId, fallbackScript = null) {
+  // 1. Check fallback passed in, then memory cache, then localStorage
+  let script = fallbackScript;
+  if (!script && State.scriptsCache) {
+    script = State.scriptsCache.get(scriptId);
+  }
+  if (!script) {
+    const localList = getLocalPublishedScripts();
+    script = localList.find(s => s.id === scriptId);
+  }
+
+  // 2. Render cached data immediately (zero delay, zero 404 freeze)
+  if (script) {
+    renderScriptDetailModal(script);
+  }
+
+  // 3. Revalidate in background from server
   try {
     const data = await api(`/api/scripts/${scriptId}`);
-    const script = data.script;
-    State.activeModalScript = script;
-
-    const modal = document.getElementById('scriptDetailModal');
-
-    document.getElementById('detailLangBadge').textContent = (script.extension || 'lua').toUpperCase();
-    document.getElementById('detailTitle').textContent = script.title;
-    
-    const authorAvatarEl = document.getElementById('detailAuthorAvatar');
-    authorAvatarEl.src = getAvatarSrc(script.authorAvatar);
-    authorAvatarEl.onerror = function() { this.src = DEFAULT_AVATARS[0]; };
-    authorAvatarEl.dataset.authorId = script.authorId || '';
-    authorAvatarEl.classList.add('clickable-author-avatar');
-    authorAvatarEl.title = `Открыть профиль ${script.author}`;
-    authorAvatarEl.onclick = () => {
-      if (script.authorId) openPublicProfile(script.authorId);
-    };
-
-    const authorNameEl = document.getElementById('detailAuthorName');
-    authorNameEl.textContent = script.author;
-    authorNameEl.dataset.authorId = script.authorId || '';
-    authorNameEl.classList.add('clickable-author');
-    authorNameEl.title = `Открыть профиль ${script.author}`;
-    authorNameEl.onclick = () => {
-      if (script.authorId) openPublicProfile(script.authorId);
-    };
-
-    document.getElementById('detailDate').innerHTML = `<i class="fa-regular fa-clock"></i> ${formatRelativeTime(script.createdAt)}`;
-
-    // Status Pill
-    const statusPill = document.getElementById('detailStatusPill');
-    const currentStatus = script.status || 'pending';
-
-    if (currentStatus === 'verified') {
-      statusPill.className = 'detail-status-pill verified';
-      statusPill.innerHTML = '<i class="fa-solid fa-circle-check"></i> <span>Проверено на запуск</span>';
-    } else if (currentStatus === 'rejected') {
-      statusPill.className = 'detail-status-pill rejected';
-      statusPill.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> <span>Отклонено</span>';
-    } else {
-      statusPill.className = 'detail-status-pill pending';
-      statusPill.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Не проверено на запуск</span>';
+    if (data && data.script) {
+      if (!State.scriptsCache) State.scriptsCache = new Map();
+      State.scriptsCache.set(data.script.id, data.script);
+      renderScriptDetailModal(data.script);
     }
-
-    // Moderator Control Panel (Kerryrbq / Admins)
-    const modPanel = document.getElementById('moderatorActionPanel');
-    if (State.currentUser && State.currentUser.isModerator) {
-      modPanel.classList.remove('hidden');
-      const modStatusEl = document.getElementById('modCurrentStatus');
-      const statusMap = {
-        verified: '🟢 Проверено на запуск',
-        pending: '🟡 Не проверено на запуск',
-        rejected: '🔴 Отклонено'
-      };
-      modStatusEl.textContent = `Статус: ${statusMap[currentStatus] || currentStatus}`;
-    } else {
-      modPanel.classList.add('hidden');
-    }
-
-    // Like button
-    const likeBtn = document.getElementById('detailLikeBtn');
-    likeBtn.className = `engagement-badge like-action-btn ${script.isLiked ? 'liked' : ''}`;
-    likeBtn.querySelector('i').className = `${script.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart`;
-    document.getElementById('detailLikesCount').textContent = script.likesCount || 0;
-    document.getElementById('detailViewsCount').textContent = script.views || 0;
-    document.getElementById('detailCommentsCount').textContent = script.commentsCount || 0;
-    document.getElementById('commentsCountHeading').textContent = script.commentsCount || 0;
-
-    // Script Rating & Interactive Stars Bar
-    const ratingVal = typeof script.rating === 'number' ? script.rating : 5.0;
-    const ratingsCount = script.ratingsCount || 0;
-    const userRating = script.userRating || 0;
-
-    const ratingValEl = document.getElementById('detailRatingVal');
-    if (ratingValEl) ratingValEl.textContent = ratingVal.toFixed(1);
-
-    const ratingCountEl = document.getElementById('detailRatingCountVal');
-    if (ratingCountEl) ratingCountEl.textContent = `(${ratingsCount})`;
-
-    const barScoreEl = document.getElementById('barRatingScore');
-    if (barScoreEl) barScoreEl.textContent = `${ratingVal.toFixed(1)} ★`;
-
-    const barVotesEl = document.getElementById('barRatingVotes');
-    if (barVotesEl) barVotesEl.textContent = `(${ratingsCount} ${getRatingNoun(ratingsCount)})`;
-
-    const voteTagEl = document.getElementById('userVoteStatusTag');
-    if (voteTagEl) {
-      if (userRating > 0) {
-        voteTagEl.textContent = `Ваша оценка: ${userRating} ★`;
-        voteTagEl.style.background = 'rgba(16, 185, 129, 0.2)';
-        voteTagEl.style.color = '#34d399';
-      } else {
-        voteTagEl.textContent = 'Поставьте оценку';
-        voteTagEl.style.background = 'rgba(251, 191, 36, 0.15)';
-        voteTagEl.style.color = '#fde047';
-      }
-    }
-
-    const starBtns = document.querySelectorAll('#scriptStarsSelector .script-star-btn');
-    starBtns.forEach(btn => {
-      const val = parseInt(btn.dataset.val, 10);
-      if (val <= userRating) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
-    });
-
-    // Cover image
-    const coverSrc = getCardCover(script);
-    const coverTabBtn = document.getElementById('tabDetailCoverBtn');
-    const coverImgEl = document.getElementById('detailCoverImage');
-    if (coverImgEl) {
-      coverImgEl.src = coverSrc;
-      coverImgEl.onerror = function() { this.src = PRESET_COVERS['cyber-hub']; };
-    }
-    if (coverTabBtn) coverTabBtn.classList.remove('hidden');
-
-    // Description & tags
-    document.getElementById('detailDescriptionText').textContent = script.description;
-    const tagsContainer = document.getElementById('detailTagsList');
-    tagsContainer.innerHTML = (script.tags || []).map(t => `<span class="tag-pill">#${escapeHtml(t)}</span>`).join('');
-
-    // Code & unified line numbers (table layout eliminates any line misalignment)
-    const lines = (script.code || '').split('\n');
-    document.getElementById('codeFileName').textContent = `script.${script.extension || 'lua'}`;
-    document.getElementById('codeLinesCount').textContent = `${lines.length} строк`;
-
-    // Update tab counters
-    const codeTabCounter = document.getElementById('tabDetailCodeCount');
-    if (codeTabCounter) codeTabCounter.textContent = `${lines.length} строк`;
-    const commentsTabCounter = document.getElementById('tabDetailCommentsCount');
-    if (commentsTabCounter) commentsTabCounter.textContent = `${script.commentsCount || 0}`;
-
-    const isTxt = (script.extension === 'txt');
-    const rowsHtml = lines.map((line, idx) => {
-      const lineNum = idx + 1;
-      const highlighted = isTxt ? highlightTxtLine(line) : highlightLuaLine(line);
-      return `<div class="code-line"><span class="code-line-num" data-line="${lineNum}">${lineNum}</span><span class="code-line-text">${highlighted || '&nbsp;'}</span></div>`;
-    }).join('');
-
-    document.getElementById('detailCodeBox').innerHTML = rowsHtml;
-    document.getElementById('copyBtnText').textContent = 'Скопировать код';
-
-    // Switch to Code Tab by default (ensures code is immediately visible!)
-    switchDetailTab('code');
-
-    // Comments feed
-    renderComments(script.comments || [], script.authorId);
-
-    modal.classList.remove('hidden');
     updatePlatformStats();
-
   } catch (err) {
-    showToast(err.message || 'Не удалось открыть скрипт', 'error');
+    if (!script) {
+      showToast('Скрипт не найден или был удален', 'error');
+      DebugConsole.log('error', `Script ${scriptId} not found on server.`, err);
+    } else {
+      DebugConsole.log('info', `Displaying cached local data for ${scriptId}.`);
+    }
   }
 }
 
@@ -1789,6 +1848,30 @@ async function handleUploadSubmit(e) {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+
+    const newScript = (data && data.script) ? data.script : {
+      id: 'script-' + Date.now(),
+      title,
+      category,
+      extension,
+      code,
+      description,
+      tags: typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : (tags || []),
+      coverImage: State.uploadedImageDataUrl || '',
+      presetCover: category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor'),
+      author: State.currentUser?.username || 'User',
+      authorId: State.currentUser?.id,
+      authorAvatar: State.currentUser?.avatar,
+      createdAt: Date.now(),
+      status: 'verified',
+      views: 1,
+      likes: [],
+      comments: []
+    };
+
+    if (!State.scriptsCache) State.scriptsCache = new Map();
+    State.scriptsCache.set(newScript.id, newScript);
+    saveLocalPublishedScript(newScript);
 
     showToast('Скрипт успешно опубликован!', 'success');
     DebugConsole.log('info', '✅ Скрипт опубликован успешно:', data);
