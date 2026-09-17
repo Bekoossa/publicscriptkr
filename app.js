@@ -1516,6 +1516,7 @@ async function openScriptDetail(scriptId, fallbackScript = null) {
     if (data && data.script) {
       if (!State.scriptsCache) State.scriptsCache = new Map();
       State.scriptsCache.set(data.script.id, data.script);
+      saveLocalPublishedScript(data.script);
       renderScriptDetailModal(data.script);
     }
     updatePlatformStats();
@@ -1567,7 +1568,8 @@ function switchDetailTab(tabName) {
 
 async function handleModerateScript(status, targetScriptId = null) {
   if (!isUserModerator(State.currentUser)) {
-    showToast('Только модератор (Kerryrbq) может проверять скрипты', 'error');
+    showToast('Войдите в аккаунт Kerryrbq (Администратор) для управления модерацией!', 'error');
+    openAuthModal('login');
     return;
   }
 
@@ -1581,93 +1583,90 @@ async function handleModerateScript(status, targetScriptId = null) {
     note = reason.trim();
   }
 
-  // 1. INSTANT OPTIMISTIC UPDATE: Update memory cache & localStorage immediately
-  if (State.scriptsCache && State.scriptsCache.has(scriptId)) {
-    const s = State.scriptsCache.get(scriptId);
-    s.status = status;
-  }
-  updateLocalPublishedScriptStatus(scriptId, status);
-
-  // 2. INSTANT UI UPDATE: Script Detail Modal (if open for this script)
-  if (State.activeModalScript && State.activeModalScript.id === scriptId) {
-    State.activeModalScript.status = status;
-    const statusPill = document.getElementById('detailStatusPill');
-    if (statusPill) {
-      if (status === 'verified') {
-        statusPill.className = 'detail-status-pill verified';
-        statusPill.innerHTML = '<i class="fa-solid fa-circle-check"></i> <span>Проверено на запуск</span>';
-      } else if (status === 'rejected') {
-        statusPill.className = 'detail-status-pill rejected';
-        statusPill.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> <span>Отклонено</span>';
-      } else {
-        statusPill.className = 'detail-status-pill pending';
-        statusPill.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Не проверено на запуск</span>';
-      }
-    }
-    const modStatusEl = document.getElementById('modCurrentStatus');
-    if (modStatusEl) {
-      const statusMap = {
-        verified: '🟢 Проверено на запуск',
-        pending: '🟡 Не проверено на запуск',
-        rejected: '🔴 Отклонено'
-      };
-      modStatusEl.textContent = `Статус: ${statusMap[status] || status}`;
-    }
+  // Visual loading state on the clicked button if in detail modal
+  const btn = document.getElementById(status === 'verified' ? 'modBtnVerify' : (status === 'pending' ? 'modBtnPending' : 'modBtnReject'));
+  const origHtml = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение...';
   }
 
-  // 3. INSTANT UI UPDATE: Moderation Queue Card
-  const qCard = document.querySelector(`.mod-queue-card[data-script-id="${scriptId}"]`);
-  if (qCard) {
-    qCard.style.transition = 'all 0.25s ease';
-    qCard.style.opacity = '0';
-    qCard.style.transform = 'scale(0.95)';
-    setTimeout(() => {
-      qCard.remove();
-      const remainingCards = document.querySelectorAll('#modQueueList .mod-queue-card').length;
-      const qBadge = document.getElementById('modQueueBadge');
-      const qHeader = document.getElementById('modQueueModalCount');
-      if (qBadge) {
-        qBadge.textContent = remainingCards;
-        if (remainingCards === 0) qBadge.classList.add('hidden');
-      }
-      if (qHeader) {
-        qHeader.textContent = `${remainingCards} ${remainingCards === 1 ? 'скрипт ожидает' : 'скриптов ожидают'} проверки`;
-      }
-      if (remainingCards === 0) {
-        const emptyState = document.getElementById('emptyModQueue');
-        if (emptyState) emptyState.classList.remove('hidden');
-      }
-    }, 250);
-  }
-
-  // 4. INSTANT UI UPDATE: Main feed and author cards
-  document.querySelectorAll(`.script-card[data-id="${scriptId}"]`).forEach(card => {
-    const badgeWrap = card.querySelector('.script-status-badge');
-    if (badgeWrap) {
-      badgeWrap.outerHTML = renderCardStatusBadge(status);
-    }
-  });
-
-  const label = status === 'verified' ? 'Проверено на запуск 🟢' : (status === 'rejected' ? 'Отклонено 🔴' : 'Не проверено 🟡');
-  showToast(`Статус скрипта успешно изменен: ${label}`, status === 'verified' ? 'success' : (status === 'rejected' ? 'error' : 'info'));
-
-  // 5. SEND SERVER MUTATION
   try {
     const res = await api(`/api/scripts/${scriptId}/moderate`, {
       method: 'POST',
       body: JSON.stringify({ status, note })
     });
 
-    if (res && res.script && State.scriptsCache) {
-      State.scriptsCache.set(res.script.id, res.script);
+    const updatedScript = (res && res.script) ? res.script : { id: scriptId, status };
+
+    // 1. Update memory cache & local storage
+    if (!State.scriptsCache) State.scriptsCache = new Map();
+    State.scriptsCache.set(scriptId, updatedScript);
+    updateLocalPublishedScriptStatus(scriptId, status);
+    saveLocalPublishedScript(updatedScript);
+
+    // 2. Update Detail Modal
+    if (State.activeModalScript && State.activeModalScript.id === scriptId) {
+      State.activeModalScript = updatedScript;
+      renderScriptDetailModal(updatedScript);
     }
+
+    // 3. Update Moderation Queue DOM if verified or rejected
+    if (status === 'verified' || status === 'rejected') {
+      const qCard = document.querySelector(`.mod-queue-card[data-script-id="${scriptId}"]`);
+      if (qCard) {
+        qCard.style.transition = 'all 0.25s ease';
+        qCard.style.opacity = '0';
+        qCard.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+          qCard.remove();
+          const remainingCards = document.querySelectorAll('#modQueueList .mod-queue-card').length;
+          const qBadge = document.getElementById('modQueueBadge');
+          const qHeader = document.getElementById('modQueueModalCount');
+          if (qBadge) {
+            qBadge.textContent = remainingCards;
+            if (remainingCards === 0) qBadge.classList.add('hidden');
+          }
+          if (qHeader) {
+            qHeader.textContent = `${remainingCards} ${remainingCards === 1 ? 'скрипт ожидает' : 'скриптов ожидают'} проверки`;
+          }
+          if (remainingCards === 0) {
+            const emptyState = document.getElementById('emptyModQueue');
+            if (emptyState) emptyState.classList.remove('hidden');
+          }
+        }, 250);
+      }
+    }
+
+    // 4. Update Main feed card badge
+    document.querySelectorAll(`.script-card[data-id="${scriptId}"]`).forEach(card => {
+      const badgeWrap = card.querySelector('.script-status-badge');
+      if (badgeWrap) {
+        badgeWrap.outerHTML = renderCardStatusBadge(status);
+      }
+    });
+
+    const label = status === 'verified' ? 'Проверено на запуск 🟢' : (status === 'rejected' ? 'Отклонено 🔴' : 'Не проверено 🟡');
+    showToast(`Статус скрипта успешно сохранен: ${label}`, status === 'verified' ? 'success' : (status === 'rejected' ? 'error' : 'info'));
+
     loadScriptsFeed();
     loadModerationQueue();
     updateModerationQueueCount();
     loadNotifications();
     updatePlatformStats();
   } catch (err) {
-    showToast(err.message || 'Ошибка сервера при сохранении модерации', 'error');
+    console.error('Moderation error:', err);
+    if (err.status === 401 || err.status === 403) {
+      showToast('Ошибка прав: войдите в аккаунт Kerryrbq (Администратор)', 'error');
+      openAuthModal('login');
+    } else {
+      showToast(err.message || 'Ошибка сервера при сохранении модерации', 'error');
+    }
+  } finally {
+    if (btn && origHtml) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
   }
 }
 

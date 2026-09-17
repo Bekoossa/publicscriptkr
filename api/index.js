@@ -132,23 +132,6 @@ module.exports = async function handler(req, res) {
         return res.json({ token: freshToken, user: safe });
       }
 
-      // Check matching lastIp
-      if (clientIp && clientIp !== '127.0.0.1') {
-        const matching = (db.users || []).filter(u => u.lastIp === clientIp && (!u.bans || !u.bans.full));
-        if (matching.length === 1) {
-          const candidate = matching[0];
-          const freshToken = generateToken(candidate.id);
-          if (!db.tokens) db.tokens = {};
-          db.tokens[freshToken] = candidate.id;
-          db.lastActiveUserToken = freshToken;
-          await saveDB(kv);
-          res.setHeader('Set-Cookie', `pskr_token=${freshToken}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
-          const safe = { ...candidate, isModerator: isModerator(candidate) };
-          delete safe.passwordHash;
-          return res.json({ token: freshToken, user: safe });
-        }
-      }
-
       return res.json({ user: null, token: null });
     }
 

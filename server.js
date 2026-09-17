@@ -444,14 +444,6 @@ app.get('/api/auth/session-restore', (req, res) => {
     }
   }
 
-  // 3. Fallback: match by lastIp (if within same IP and not banned)
-  if (!candidateUser && req.clientIp && req.clientIp !== '127.0.0.1') {
-    const matchingUsers = (db.users || []).filter(u => u.lastIp === req.clientIp && (!u.bans || !u.bans.full));
-    if (matchingUsers.length === 1) {
-      candidateUser = matchingUsers[0];
-    }
-  }
-
   if (candidateUser) {
     const freshToken = generateToken(candidateUser.id);
     if (!db.tokens) db.tokens = {};
