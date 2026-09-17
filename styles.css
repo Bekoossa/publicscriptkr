@@ -1521,7 +1521,19 @@ body {
 }
 .form-input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(124,58,237,0.15); }
 
-.code-editor-textarea { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.5; tab-size: 2; background: #08080a; }
+.code-editor-textarea {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  tab-size: 2;
+  background: #08080a;
+  white-space: pre !important;
+  word-wrap: normal !important;
+  overflow-wrap: normal !important;
+  overflow-x: auto !important;
+  resize: vertical;
+  contain: content;
+}
 
 .upload-file-chip {
   display: inline-flex;

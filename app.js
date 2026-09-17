@@ -1439,13 +1439,46 @@ function renderScriptDetailModal(script) {
   if (commentsTabCounter) commentsTabCounter.textContent = `${script.commentsCount || 0}`;
 
   const isTxt = (script.extension === 'txt');
-  const rowsHtml = lines.map((line, idx) => {
-    const lineNum = idx + 1;
-    const highlighted = isTxt ? highlightTxtLine(line) : highlightLuaLine(line);
-    return `<div class="code-line"><span class="code-line-num" data-line="${lineNum}">${lineNum}</span><span class="code-line-text">${highlighted || '&nbsp;'}</span></div>`;
-  }).join('');
+  const totalLines = lines.length;
+  const detailBox = document.getElementById('detailCodeBox');
 
-  document.getElementById('detailCodeBox').innerHTML = rowsHtml;
+  if (totalLines > 1500) {
+    const firstChunk = lines.slice(0, 800);
+    const rowsHtml = firstChunk.map((line, idx) => {
+      const lineNum = idx + 1;
+      const highlighted = isTxt ? highlightTxtLine(line) : highlightLuaLine(line);
+      return `<div class="code-line"><span class="code-line-num" data-line="${lineNum}">${lineNum}</span><span class="code-line-text">${highlighted || '&nbsp;'}</span></div>`;
+    }).join('');
+
+    detailBox.innerHTML = rowsHtml + `
+      <div id="loadMoreCodeBtnWrap" style="padding: 16px; text-align: center; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border-color);">
+        <button type="button" id="loadRemainingCodeBtn" class="btn-primary" style="padding: 8px 18px; font-size: 0.85rem;">
+          <i class="fa-solid fa-angles-down"></i> Показать весь код (еще ${totalLines - 800} строк)
+        </button>
+      </div>
+    `;
+
+    document.getElementById('loadRemainingCodeBtn')?.addEventListener('click', function() {
+      this.disabled = true;
+      this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Загрузка строк...';
+      setTimeout(() => {
+        const remainingHtml = lines.slice(800).map((line, idx) => {
+          const lineNum = idx + 801;
+          const highlighted = isTxt ? highlightTxtLine(line) : highlightLuaLine(line);
+          return `<div class="code-line"><span class="code-line-num" data-line="${lineNum}">${lineNum}</span><span class="code-line-text">${highlighted || '&nbsp;'}</span></div>`;
+        }).join('');
+        document.getElementById('loadMoreCodeBtnWrap')?.remove();
+        detailBox.insertAdjacentHTML('beforeend', remainingHtml);
+      }, 30);
+    });
+  } else {
+    const rowsHtml = lines.map((line, idx) => {
+      const lineNum = idx + 1;
+      const highlighted = isTxt ? highlightTxtLine(line) : highlightLuaLine(line);
+      return `<div class="code-line"><span class="code-line-num" data-line="${lineNum}">${lineNum}</span><span class="code-line-text">${highlighted || '&nbsp;'}</span></div>`;
+    }).join('');
+    detailBox.innerHTML = rowsHtml;
+  }
   document.getElementById('copyBtnText').textContent = 'Скопировать код';
 
   // Switch to Code Tab by default (ensures code is immediately visible!)
@@ -2317,19 +2350,59 @@ function setupImageDropzone() {
   });
 }
 
+function setupFastCodePasteOptimization() {
+  const textareas = [
+    document.getElementById('scriptCodeInput'),
+    document.getElementById('editScriptCodeInput')
+  ].filter(Boolean);
+
+  textareas.forEach(ta => {
+    ta.addEventListener('paste', (e) => {
+      const clipboardData = e.clipboardData || window.clipboardData;
+      if (!clipboardData) return;
+      const text = clipboardData.getData('text/plain');
+
+      // If pasted text is large (> 20KB or > 300 lines), perform fast direct insertion
+      // to bypass browser Hunspell spellchecking and rich text parsing stalls
+      if (text && (text.length > 20000 || text.includes('\n'))) {
+        e.preventDefault();
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const currentVal = ta.value;
+
+        ta.value = currentVal.substring(0, start) + text + currentVal.substring(end);
+        ta.selectionStart = ta.selectionEnd = start + text.length;
+
+        // Dispatch input event for validations
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+        const lines = text.split('\n').length;
+        const kb = (text.length / 1024).toFixed(1);
+        if (text.length > 30000) {
+          showToast(`Вставлен большой скрипт: ${lines} строк (${kb} KB) без зависаний! ⚡`, 'info');
+        }
+      }
+    });
+  });
+}
+
 function setupEditModalInteractions() {
   const codeInput = document.getElementById('editScriptCodeInput');
   const codeIndicator = document.getElementById('editCodeChangeIndicator');
   if (codeInput && codeIndicator) {
+    let checkTimer = null;
     codeInput.addEventListener('input', () => {
-      const isChanged = codeInput.value.trim() !== _editOriginalCode;
-      if (isChanged) {
-        codeIndicator.className = 'code-change-indicator changed';
-        codeIndicator.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Код изменен! Потребуется проверка Kerryrbq';
-      } else {
-        codeIndicator.className = 'code-change-indicator';
-        codeIndicator.innerHTML = '<i class="fa-solid fa-check"></i> Код не изменен (без перемодерации)';
-      }
+      clearTimeout(checkTimer);
+      checkTimer = setTimeout(() => {
+        const isChanged = (codeInput.value || '').trim() !== _editOriginalCode;
+        if (isChanged) {
+          codeIndicator.className = 'code-change-indicator changed';
+          codeIndicator.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Код изменен! Потребуется проверка Kerryrbq';
+        } else {
+          codeIndicator.className = 'code-change-indicator';
+          codeIndicator.innerHTML = '<i class="fa-solid fa-check"></i> Код не изменен (без перемодерации)';
+        }
+      }, 150);
     });
   }
 
@@ -3083,6 +3156,7 @@ function setupEventListeners() {
 
   setupImageDropzone();
   setupEditModalInteractions();
+  setupFastCodePasteOptimization();
   setupCodeFileInput();
   setupProfileAvatarUpload();
   setupPublicProfileEventListeners();
