@@ -500,6 +500,22 @@
           </div>
         </div>
 
+        <!-- Author Actions Bar (Visible to Author or Moderator) -->
+        <div class="author-actions-bar hidden" id="detailAuthorActionsBar">
+          <div class="author-actions-bar-left">
+            <i class="fa-solid fa-user-pen"></i>
+            <span>Управление скриптом:</span>
+          </div>
+          <div class="author-actions-btns">
+            <button class="btn btn-secondary btn-sm btn-detail-action" id="detailEditBtn" title="Редактировать этот скрипт">
+              <i class="fa-solid fa-pen-to-square"></i> <span>Редактировать</span>
+            </button>
+            <button class="btn btn-danger btn-sm btn-detail-action" id="detailAuthorDeleteBtn" title="Удалить этот скрипт">
+              <i class="fa-solid fa-trash-can"></i> <span>Удалить</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Tabs Navigation -->
         <div class="detail-modal-tabs" id="detailModalTabs">
           <button class="detail-tab-pill active" id="tabDetailCodeBtn">
@@ -783,6 +799,151 @@
             <button type="button" class="btn btn-ghost" id="cancelUploadBtn">Отмена</button>
             <button type="submit" class="btn btn-primary" id="publishScriptSubmitBtn">
               <i class="fa-solid fa-rocket"></i> Опубликовать на сервер
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: EDIT SCRIPT (Author or Kerryrbq) -->
+  <!-- ============================================== -->
+  <div class="modal-overlay hidden" id="editScriptModal">
+    <div class="modal-dialog modal-medium">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-tag-badge edit-badge"><i class="fa-solid fa-pen-to-square"></i> РЕДАКТИРОВАНИЕ</div>
+          <h2 class="modal-title">Редактировать скрипт</h2>
+        </div>
+        <button class="modal-close-btn" id="closeEditModalBtn" aria-label="Закрыть">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Smart Moderation Notice Banner -->
+        <div class="edit-moderation-notice" id="editModerationNotice">
+          <div class="notice-icon"><i class="fa-solid fa-circle-info"></i></div>
+          <div class="notice-text">
+            <strong>Правило проверки кода:</strong> Если вы меняете только название, описание, теги или скриншот — изменения применяются <em>мгновенно без перемодерации</em>. Если вы измените <strong>исходный код Lua</strong>, скрипт автоматически отправится Kerryrbq на повторную проверку на запуск.
+          </div>
+        </div>
+
+        <form id="editForm" class="upload-form">
+          <input type="hidden" id="editScriptId">
+
+          <!-- Title -->
+          <div class="form-group">
+            <label for="editScriptTitleInput" class="form-label">
+              <i class="fa-solid fa-heading"></i> Название скрипта <span class="req">*</span>
+            </label>
+            <input 
+              type="text" 
+              id="editScriptTitleInput" 
+              class="form-input" 
+              placeholder="Название скрипта" 
+              required
+            >
+          </div>
+
+          <!-- Category & Format -->
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label for="editScriptCategorySelect" class="form-label">
+                <i class="fa-solid fa-folder-tree"></i> Категория <span class="req">*</span>
+              </label>
+              <select id="editScriptCategorySelect" class="form-input" required>
+                <option value="lua">Lua Скрипт</option>
+                <option value="roblox">Roblox / Игровой</option>
+                <option value="txt">TXT / Конфигурация</option>
+                <option value="bot">Бот / Автоматизация</option>
+                <option value="utilities">Утилита / GUI</option>
+              </select>
+            </div>
+
+            <div class="form-group col-6">
+              <label for="editScriptExtensionSelect" class="form-label">
+                <i class="fa-solid fa-file-code"></i> Расширение файла <span class="req">*</span>
+              </label>
+              <select id="editScriptExtensionSelect" class="form-input" required>
+                <option value="lua">.lua (Lua Script)</option>
+                <option value="txt">.txt (Текстовый конфиг/скрипт)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Screenshot / Image Upload -->
+          <div class="form-group">
+            <label class="form-label">
+              <i class="fa-solid fa-image"></i> Скриншот / Обложка скрипта
+            </label>
+            <div class="image-dropzone" id="editImageDropzone">
+              <input type="file" id="editImageFileInput" accept="image/*" class="file-hidden-input">
+              <div class="dropzone-content" id="editDropzonePrompt">
+                <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+                <span class="dropzone-text">Перетащите новый скриншот или <span class="link-span" id="editBrowseImageBtn">выберите файл</span></span>
+                <span class="dropzone-sub">Оставьте прежним, если не хотите менять обложку</span>
+              </div>
+              <div class="dropzone-preview hidden" id="editDropzonePreviewWrap">
+                <img src="" alt="Предпросмотр скриншота" id="editUploadedImagePreview" class="uploaded-img-tag">
+                <button type="button" class="remove-preview-btn" id="editRemoveImageBtn" title="Удалить скриншот">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Script Code Area -->
+          <div class="form-group">
+            <div class="form-label-bar">
+              <label for="editScriptCodeInput" class="form-label">
+                <i class="fa-solid fa-terminal"></i> Исходный код скрипта <span class="req">*</span>
+              </label>
+              <span class="code-change-indicator" id="editCodeChangeIndicator">
+                <i class="fa-solid fa-check"></i> Код не изменен
+              </span>
+            </div>
+            <textarea 
+              id="editScriptCodeInput" 
+              class="form-input code-editor-textarea" 
+              rows="9" 
+              placeholder="Исходный код..." 
+              required
+            ></textarea>
+          </div>
+
+          <!-- Description -->
+          <div class="form-group">
+            <label for="editScriptDescInput" class="form-label">
+              <i class="fa-solid fa-paragraph"></i> Описание, инструкция по запуску
+            </label>
+            <textarea 
+              id="editScriptDescInput" 
+              class="form-input" 
+              rows="3" 
+              placeholder="Описание функций, инструкция..."
+            ></textarea>
+          </div>
+
+          <!-- Tags -->
+          <div class="form-group">
+            <label for="editScriptTagsInput" class="form-label">
+              <i class="fa-solid fa-tags"></i> Теги (через запятую)
+            </label>
+            <input 
+              type="text" 
+              id="editScriptTagsInput" 
+              class="form-input" 
+              placeholder="roblox, autofarm, esp, hub"
+            >
+          </div>
+
+          <!-- Submit Bar -->
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="cancelEditBtn">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="saveScriptEditBtn">
+              <i class="fa-solid fa-floppy-disk"></i> Сохранить изменения
             </button>
           </div>
         </form>

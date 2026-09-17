@@ -115,6 +115,28 @@ function getAvatarSrc(src) {
   return DEFAULT_AVATARS[0];
 }
 
+function isUserModerator(user) {
+  if (!user) return false;
+  const uname = (user.username || '').toLowerCase();
+  return (
+    user.badge === 'ADMIN' ||
+    user.badge === 'MODERATOR' ||
+    uname === 'kerryrbq' ||
+    user.id === 'u-1789205573347' ||
+    user.id === 'kerryrbq' ||
+    user.isModerator === true
+  );
+}
+
+function canUserManageScript(script, user = State.currentUser) {
+  if (!script || !user) return false;
+  if (isUserModerator(user)) return true;
+  if (script.authorId && String(script.authorId) === String(user.id)) return true;
+  if (script.author && user.username && script.author.toLowerCase() === user.username.toLowerCase()) return true;
+  return false;
+}
+
+
 // ============================================================================
 // KERRYRBQ ADMIN DEBUG & ERROR CONSOLE SUBSYSTEM
 // ============================================================================
@@ -726,6 +748,7 @@ function renderUserNav(user, fetchBgData = true) {
   const consoleFltBtn = document.getElementById('adminConsoleFloatingBtn');
 
   if (user) {
+    user.isModerator = isUserModerator(user);
     guestWrap.classList.add('hidden');
     userPill.classList.remove('hidden');
     const navAvatarEl = document.getElementById('navUserAvatar');
@@ -735,7 +758,7 @@ function renderUserNav(user, fetchBgData = true) {
     }
     document.getElementById('navUserName').textContent = user.username;
     
-    const isKerryAdmin = (user.username || '').toLowerCase() === 'kerryrbq' || user.isModerator || user.badge === 'ADMIN';
+    const isKerryAdmin = user.isModerator;
 
     const badgeEl = document.getElementById('navUserBadge');
     if (isKerryAdmin) {
@@ -835,7 +858,7 @@ async function loadNotifications() {
         document.getElementById('notifPopover').classList.add('hidden');
 
         // If it's a pending script and current user is moderator, open moderation queue!
-        if (status === 'pending' && State.currentUser && State.currentUser.isModerator) {
+        if (status === 'pending' && isUserModerator(State.currentUser)) {
           openModerationQueueModal();
           return;
         }
@@ -1110,7 +1133,7 @@ async function loadScriptsFeed() {
           const action = btn.dataset.action;
           if (action === 'quick-copy') {
             e.stopPropagation();
-            copyCode(script.code, script.title);
+            copyCode(script, script.title);
             return;
           }
           if (action === 'toggle-like') {
@@ -1209,7 +1232,7 @@ function renderScriptDetailModal(script) {
 
   // Moderator Control Panel (Kerryrbq / Admins)
   const modPanel = document.getElementById('moderatorActionPanel');
-  if (State.currentUser && State.currentUser.isModerator) {
+  if (isUserModerator(State.currentUser)) {
     modPanel.classList.remove('hidden');
     const modStatusEl = document.getElementById('modCurrentStatus');
     const statusMap = {
@@ -1220,6 +1243,28 @@ function renderScriptDetailModal(script) {
     modStatusEl.textContent = `Статус: ${statusMap[currentStatus] || currentStatus}`;
   } else {
     modPanel.classList.add('hidden');
+  }
+
+  // Author Actions Bar (Author or Kerryrbq)
+  const authorActionsBar = document.getElementById('detailAuthorActionsBar');
+  if (authorActionsBar) {
+    if (canUserManageScript(script, State.currentUser)) {
+      authorActionsBar.classList.remove('hidden');
+      const editBtn = document.getElementById('detailEditBtn');
+      if (editBtn) {
+        editBtn.onclick = () => {
+          openEditScriptModal(script);
+        };
+      }
+      const deleteBtn = document.getElementById('detailAuthorDeleteBtn');
+      if (deleteBtn) {
+        deleteBtn.onclick = () => {
+          handleDeleteScript(script.id);
+        };
+      }
+    } else {
+      authorActionsBar.classList.add('hidden');
+    }
   }
 
   // Like button
@@ -1388,7 +1433,7 @@ function switchDetailTab(tabName) {
 }
 
 async function handleModerateScript(status, targetScriptId = null) {
-  if (!State.currentUser || !State.currentUser.isModerator) {
+  if (!isUserModerator(State.currentUser)) {
     showToast('Только модератор (Kerryrbq) может проверять скрипты', 'error');
     return;
   }
@@ -1428,15 +1473,19 @@ async function handleModerateScript(status, targetScriptId = null) {
 
 // Delete script permanently (Kerryrbq / Admin or Author)
 async function handleDeleteScript(scriptId = null) {
-  if (!State.currentUser || !State.currentUser.isModerator) {
-    showToast('Удалять скрипты с сайта может только модератор Kerryrbq', 'error');
-    return;
-  }
-
   const targetId = scriptId || (State.activeModalScript && State.activeModalScript.id);
   if (!targetId) return;
 
-  if (!confirm('Вы уверены, что хотите НАВСЕГДА удалить этот скрипт с сайта? Это действие нельзя отменить.')) {
+  let script = (State.activeModalScript && State.activeModalScript.id === targetId) ? State.activeModalScript : null;
+  if (!script && State.scriptsCache) script = State.scriptsCache.get(targetId);
+
+  const canManage = canUserManageScript(script, State.currentUser);
+  if (!canManage && !isUserModerator(State.currentUser)) {
+    showToast('У вас нет прав на удаление этого скрипта', 'error');
+    return;
+  }
+
+  if (!confirm('Вы уверены, что хотите НАВСЕГДА удалить этот скрипт? Это действие нельзя отменить.')) {
     return;
   }
 
@@ -1453,17 +1502,160 @@ async function handleDeleteScript(scriptId = null) {
     }
 
     loadScriptsFeed();
-    loadModerationQueue();
-    updateModerationQueueCount();
+    if (isUserModerator(State.currentUser)) {
+      loadModerationQueue();
+      updateModerationQueueCount();
+    }
     updatePlatformStats();
   } catch (err) {
     showToast(err.message || 'Ошибка при удалении скрипта', 'error');
   }
 }
 
+// ============================================================================
+// SCRIPT EDITING SUBSYSTEM (Author or Kerryrbq)
+// ============================================================================
+
+let _editOriginalCode = '';
+let _editUploadedImageBase64 = null;
+
+async function openEditScriptModal(scriptOrId) {
+  let script = typeof scriptOrId === 'object' ? scriptOrId : null;
+  const targetId = script ? script.id : scriptOrId;
+
+  if (!targetId) return;
+
+  // Fetch single script detail to ensure complete code is loaded
+  try {
+    const res = await api(`/api/scripts/${targetId}`);
+    if (res && res.script) {
+      script = res.script;
+    }
+  } catch (err) {
+    if (!script) {
+      showToast('Не удалось загрузить скрипт для редактирования', 'error');
+      return;
+    }
+  }
+
+  if (!canUserManageScript(script, State.currentUser)) {
+    showToast('У вас нет прав на редактирование этого скрипта', 'error');
+    return;
+  }
+
+  const modal = document.getElementById('editScriptModal');
+  if (!modal) return;
+
+  document.getElementById('editScriptId').value = script.id;
+  document.getElementById('editScriptTitleInput').value = script.title || '';
+  document.getElementById('editScriptCategorySelect').value = script.category || 'lua';
+  document.getElementById('editScriptExtensionSelect').value = script.extension || 'lua';
+  document.getElementById('editScriptCodeInput').value = script.code || '';
+  document.getElementById('editScriptDescInput').value = script.description || '';
+  document.getElementById('editScriptTagsInput').value = (script.tags || []).join(', ');
+
+  _editOriginalCode = (script.code || '').trim();
+  _editUploadedImageBase64 = null;
+
+  // Setup dropzone preview with current cover
+  const previewWrap = document.getElementById('editDropzonePreviewWrap');
+  const previewImg = document.getElementById('editUploadedImagePreview');
+  const promptWrap = document.getElementById('editDropzonePrompt');
+
+  const currentCover = getCardCover(script);
+  if (currentCover && previewImg && previewWrap && promptWrap) {
+    previewImg.src = currentCover;
+    previewWrap.classList.remove('hidden');
+    promptWrap.classList.add('hidden');
+  } else if (previewWrap && promptWrap) {
+    previewWrap.classList.add('hidden');
+    promptWrap.classList.remove('hidden');
+  }
+
+  const ind = document.getElementById('editCodeChangeIndicator');
+  if (ind) {
+    ind.className = 'code-change-indicator';
+    ind.innerHTML = '<i class="fa-solid fa-check"></i> Код не изменен (без перемодерации)';
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function closeEditScriptModal() {
+  const modal = document.getElementById('editScriptModal');
+  if (modal) modal.classList.add('hidden');
+  _editUploadedImageBase64 = null;
+}
+
+async function handleEditScriptSubmit(e) {
+  e.preventDefault();
+  const scriptId = document.getElementById('editScriptId').value;
+  if (!scriptId) return;
+
+  const title = document.getElementById('editScriptTitleInput').value.trim();
+  const category = document.getElementById('editScriptCategorySelect').value;
+  const extension = document.getElementById('editScriptExtensionSelect').value;
+  const code = document.getElementById('editScriptCodeInput').value.trim();
+  const description = document.getElementById('editScriptDescInput').value.trim();
+  const tags = document.getElementById('editScriptTagsInput').value;
+
+  if (!title || !code) {
+    showToast('Название и код скрипта обязательны', 'error');
+    return;
+  }
+
+  const submitBtn = document.getElementById('saveScriptEditBtn');
+  const origText = submitBtn.innerHTML;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение...';
+
+  try {
+    const payload = {
+      title,
+      category,
+      extension,
+      code,
+      description,
+      tags
+    };
+    if (_editUploadedImageBase64) {
+      payload.imageBase64 = _editUploadedImageBase64;
+    }
+
+    const res = await api(`/api/scripts/${scriptId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+
+    closeEditScriptModal();
+
+    if (res.codeChanged) {
+      showToast(res.message || 'Скрипт обновлен! Исходный код изменен, скрипт отправлен на повторную проверку ⏳', 'warning');
+    } else {
+      showToast(res.message || 'Скрипт успешно обновлен! (Статус сохранен) ✅', 'success');
+    }
+
+    // Refresh detail modal if open
+    if (State.activeModalScript && State.activeModalScript.id === scriptId) {
+      openScriptDetail(scriptId);
+    }
+    loadScriptsFeed();
+    updatePlatformStats();
+    if (isUserModerator(State.currentUser)) {
+      updateModerationQueueCount();
+      loadModerationQueue();
+    }
+  } catch (err) {
+    showToast(err.message || 'Ошибка при обновлении скрипта', 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = origText;
+  }
+}
+
 // Moderation Queue functions
 async function updateModerationQueueCount() {
-  if (!State.currentUser || !State.currentUser.isModerator) return;
+  if (!isUserModerator(State.currentUser)) return;
   try {
     const data = await api('/api/moderation/queue');
     const count = data.pendingCount || 0;
@@ -1500,7 +1692,7 @@ function closeModerationQueueModal() {
 }
 
 async function loadModerationQueue() {
-  if (!State.currentUser || !State.currentUser.isModerator) return;
+  if (!isUserModerator(State.currentUser)) return;
   const list = document.getElementById('modQueueList');
   const emptyState = document.getElementById('emptyModQueue');
   const headerPill = document.getElementById('modQueueModalCount');
@@ -1759,18 +1951,63 @@ async function handlePostComment(e) {
 }
 
 // Copy / Download code
-function copyCode(code, title) {
-  navigator.clipboard.writeText(code).then(() => {
-    showToast(`Код «${(title || 'скрипта').substring(0, 24)}» скопирован!`, 'success');
+async function copyCode(codeOrScript, title) {
+  let textToCopy = typeof codeOrScript === 'string' ? codeOrScript : (codeOrScript && codeOrScript.code);
+  let scriptTitle = title || (typeof codeOrScript === 'object' && codeOrScript ? codeOrScript.title : 'скрипта');
+
+  if (!textToCopy && typeof codeOrScript === 'object' && codeOrScript && codeOrScript.id) {
+    try {
+      const res = await api(`/api/scripts/${codeOrScript.id}`);
+      if (res && res.script && res.script.code) {
+        textToCopy = res.script.code;
+        codeOrScript.code = res.script.code;
+      }
+    } catch (e) {}
+  }
+
+  if (!textToCopy) {
+    showToast('Не удалось скопировать код', 'error');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(textToCopy);
+    showToast(`Код «${(scriptTitle || 'скрипта').substring(0, 24)}» скопирован!`, 'success');
     const btnText = document.getElementById('copyBtnText');
     if (btnText) btnText.textContent = 'Скопировано!';
-  }).catch(() => {
-    showToast('Не удалось скопировать', 'error');
-  });
+  } catch (err) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = textToCopy;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast(`Код «${(scriptTitle || 'скрипта').substring(0, 24)}» скопирован!`, 'success');
+      const btnText = document.getElementById('copyBtnText');
+      if (btnText) btnText.textContent = 'Скопировано!';
+    } catch (e2) {
+      showToast('Не удалось скопировать код', 'error');
+    }
+  }
 }
 
-function downloadScript(script) {
+async function downloadScript(script) {
   if (!script) return;
+  if (!script.code && script.id) {
+    try {
+      const res = await api(`/api/scripts/${script.id}`);
+      if (res && res.script && res.script.code) {
+        script.code = res.script.code;
+      }
+    } catch (e) {}
+  }
+  if (!script.code) {
+    showToast('Не удалось получить код для скачивания', 'error');
+    return;
+  }
   const ext = script.extension || 'lua';
   const filename = `${script.title.replace(/[^a-zA-Z0-9а-яА-Я_-]/g, '_').substring(0, 30)}.${ext}`;
   const blob = new Blob([script.code], { type: 'text/plain;charset=utf-8' });
@@ -1873,6 +2110,90 @@ function setupImageDropzone() {
       }
     });
   });
+}
+
+function setupEditModalInteractions() {
+  const codeInput = document.getElementById('editScriptCodeInput');
+  const codeIndicator = document.getElementById('editCodeChangeIndicator');
+  if (codeInput && codeIndicator) {
+    codeInput.addEventListener('input', () => {
+      const isChanged = codeInput.value.trim() !== _editOriginalCode;
+      if (isChanged) {
+        codeIndicator.className = 'code-change-indicator changed';
+        codeIndicator.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Код изменен! Потребуется проверка Kerryrbq';
+      } else {
+        codeIndicator.className = 'code-change-indicator';
+        codeIndicator.innerHTML = '<i class="fa-solid fa-check"></i> Код не изменен (без перемодерации)';
+      }
+    });
+  }
+
+  const dropzone = document.getElementById('editImageDropzone');
+  const fileInput = document.getElementById('editImageFileInput');
+  const browseBtn = document.getElementById('editBrowseImageBtn');
+  const removeBtn = document.getElementById('editRemoveImageBtn');
+  const previewWrap = document.getElementById('editDropzonePreviewWrap');
+  const promptWrap = document.getElementById('editDropzonePrompt');
+  const previewImg = document.getElementById('editUploadedImagePreview');
+
+  if (browseBtn && fileInput) {
+    browseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+  }
+
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', (e) => {
+      if (e.target.closest('#editRemoveImageBtn') || e.target.closest('#editBrowseImageBtn')) return;
+      fileInput.click();
+    });
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) processEditImage(e.dataTransfer.files[0]);
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) processEditImage(fileInput.files[0]);
+    });
+  }
+
+  if (removeBtn) {
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _editUploadedImageBase64 = null;
+      if (fileInput) fileInput.value = '';
+      if (previewWrap) previewWrap.classList.add('hidden');
+      if (promptWrap) promptWrap.classList.remove('hidden');
+    });
+  }
+
+  function processEditImage(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      showToast('Пожалуйста, выберите изображение (PNG, JPG, WebP)', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      _editUploadedImageBase64 = event.target.result;
+      if (previewImg) previewImg.src = _editUploadedImageBase64;
+      if (promptWrap) promptWrap.classList.add('hidden');
+      if (previewWrap) previewWrap.classList.remove('hidden');
+      showToast('Новый скриншот готов к сохранению!', 'success');
+    };
+    reader.readAsDataURL(file);
+  }
 }
 
 function setupCodeFileInput() {
@@ -2040,9 +2361,9 @@ async function openProfileModal() {
 
   // Load user's uploaded scripts
   try {
-    const data = await api('/api/scripts');
+    const data = await api(`/api/scripts?authorId=${encodeURIComponent(State.currentUser.id)}&all=true`);
     const all = data.scripts || [];
-    const myScripts = all.filter(s => s.authorId === State.currentUser.id || s.author === State.currentUser.username);
+    const myScripts = all;
 
     const myLikes = myScripts.reduce((acc, s) => acc + (s.likesCount || 0), 0);
     const myViews = myScripts.reduce((acc, s) => acc + (s.views || 0), 0);
@@ -2059,41 +2380,52 @@ async function openProfileModal() {
       emptyBox.classList.remove('hidden');
     } else {
       emptyBox.classList.add('hidden');
-      listContainer.innerHTML = myScripts.map(script => `
+      listContainer.innerHTML = myScripts.map(script => {
+        const statusBadge = script.status === 'verified'
+          ? '<span class="detail-status-pill verified" style="padding:2px 8px;font-size:0.7rem;"><i class="fa-solid fa-circle-check"></i> Проверено</span>'
+          : (script.status === 'rejected'
+            ? '<span class="detail-status-pill rejected" style="padding:2px 8px;font-size:0.7rem;"><i class="fa-solid fa-circle-xmark"></i> Отклонено</span>'
+            : '<span class="detail-status-pill pending" style="padding:2px 8px;font-size:0.7rem;"><i class="fa-solid fa-clock"></i> На проверке</span>');
+
+        return `
         <div class="user-script-row" data-id="${script.id}">
           <div class="user-script-meta">
             <span class="modal-tag-badge">${(script.extension || 'lua').toUpperCase()}</span>
             <span class="user-script-title">${escapeHtml(script.title)}</span>
+            ${statusBadge}
           </div>
           <div class="user-script-actions">
             <span class="card-stat"><i class="fa-regular fa-eye"></i> ${script.views || 0}</span>
             <span class="card-stat"><i class="fa-regular fa-heart"></i> ${script.likesCount || 0}</span>
+            <button class="edit-script-btn" title="Редактировать скрипт" data-id="${script.id}">
+              <i class="fa-solid fa-pen-to-square"></i> Редактировать
+            </button>
             <button class="delete-script-btn" title="Удалить скрипт" data-id="${script.id}">
               <i class="fa-regular fa-trash-can"></i>
             </button>
           </div>
         </div>
-      `).join('');
+        `;
+      }).join('');
+
+      listContainer.querySelectorAll('.edit-script-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeProfileModal();
+          openEditScriptModal(btn.dataset.id);
+        });
+      });
 
       listContainer.querySelectorAll('.delete-script-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
-          if (!confirm('Вы уверены, что хотите удалить этот скрипт с хоста?')) return;
-          try {
-            await api(`/api/scripts/${btn.dataset.id}`, { method: 'DELETE' });
-            showToast('Скрипт удален', 'info');
-            openProfileModal();
-            loadScriptsFeed();
-            updatePlatformStats();
-          } catch (err) {
-            showToast(err.message || 'Ошибка удаления', 'error');
-          }
+          handleDeleteScript(btn.dataset.id);
         });
       });
 
       listContainer.querySelectorAll('.user-script-row').forEach(row => {
         row.addEventListener('click', (e) => {
-          if (e.target.closest('.delete-script-btn')) return;
+          if (e.target.closest('.delete-script-btn, .edit-script-btn')) return;
           closeProfileModal();
           openScriptDetail(row.dataset.id);
         });
@@ -2224,9 +2556,17 @@ function setupEventListeners() {
   document.getElementById('closeProfileModalBtn').addEventListener('click', closeProfileModal);
   const closeModQueueBtn = document.getElementById('closeModQueueBtn');
   if (closeModQueueBtn) closeModQueueBtn.addEventListener('click', closeModerationQueueModal);
+  const closeEditModalBtn = document.getElementById('closeEditModalBtn');
+  if (closeEditModalBtn) closeEditModalBtn.addEventListener('click', closeEditScriptModal);
+  const cancelEditBtn = document.getElementById('cancelEditBtn');
+  if (cancelEditBtn) cancelEditBtn.addEventListener('click', closeEditScriptModal);
+
+  // Edit form submit
+  const editForm = document.getElementById('editForm');
+  if (editForm) editForm.addEventListener('submit', handleEditScriptSubmit);
 
   // Overlay click to close
-  ['authModal', 'scriptDetailModal', 'uploadScriptModal', 'userProfileModal', 'tunnelShareModal', 'moderationQueueModal'].forEach(id => {
+  ['authModal', 'scriptDetailModal', 'uploadScriptModal', 'userProfileModal', 'tunnelShareModal', 'moderationQueueModal', 'editScriptModal'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('click', (e) => {
@@ -2237,7 +2577,7 @@ function setupEventListeners() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      ['authModal', 'scriptDetailModal', 'uploadScriptModal', 'userProfileModal', 'tunnelShareModal', 'moderationQueueModal', 'imageZoomOverlay'].forEach(id => {
+      ['authModal', 'scriptDetailModal', 'uploadScriptModal', 'userProfileModal', 'tunnelShareModal', 'moderationQueueModal', 'editScriptModal', 'imageZoomOverlay'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
       });
@@ -2537,6 +2877,7 @@ function setupEventListeners() {
   });
 
   setupImageDropzone();
+  setupEditModalInteractions();
   setupCodeFileInput();
   setupProfileAvatarUpload();
   setupPublicProfileEventListeners();
@@ -2576,7 +2917,7 @@ async function openPublicProfile(userId) {
     if (user.badge) {
       badgeEl.innerHTML = `<i class="fa-solid fa-crown"></i> ${escapeHtml(user.badge)}`;
       badgeEl.style.display = 'inline-flex';
-    } else if (user.isModerator) {
+    } else if (isUserModerator(user)) {
       badgeEl.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Главный Администратор';
       badgeEl.style.display = 'inline-flex';
     } else {
@@ -2602,7 +2943,7 @@ async function openPublicProfile(userId) {
 
     // Admin Badge Assignment Panel (only Kerryrbq / moderators)
     const adminPanel = document.getElementById('adminBadgePanel');
-    if (State.currentUser && State.currentUser.isModerator) {
+    if (isUserModerator(State.currentUser)) {
       adminPanel.classList.remove('hidden');
       document.getElementById('adminBadgeCustomInput').value = user.badge || '';
     } else {
@@ -2728,7 +3069,7 @@ function renderPublicAuthorScripts(scripts) {
         const action = btn.dataset.action;
         if (action === 'quick-copy') {
           e.stopPropagation();
-          copyCode(script.code, script.title);
+          copyCode(script, script.title);
           return;
         }
         if (action === 'toggle-like') {
@@ -2785,7 +3126,7 @@ function renderPublicAuthorReviews(reviews, authorId) {
       }
     }
 
-    const canDelete = State.currentUser && (State.currentUser.isModerator || State.currentUser.id === r.userId);
+    const canDelete = State.currentUser && (isUserModerator(State.currentUser) || State.currentUser.id === r.userId);
     const deleteBtnHtml = canDelete ? `
       <button type="button" class="pub-review-delete-btn" onclick="window.handleDeleteAuthorReview('${r.id}')" title="Удалить этот отзыв">
         <i class="fa-solid fa-trash-can"></i> Удалить
@@ -2846,7 +3187,7 @@ function setStarPickerRating(rating) {
 }
 
 async function handleAdminAssignBadge(customValue = null) {
-  if (!State.currentUser || !State.currentUser.isModerator) {
+  if (!isUserModerator(State.currentUser)) {
     showToast('Только администратор Kerryrbq может выдавать теги', 'error');
     return;
   }

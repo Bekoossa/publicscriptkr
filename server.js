@@ -35,9 +35,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static frontend files and uploads
-app.use('/uploads', express.static(UPLOADS_DIR));
-app.use(express.static(__dirname, { etag: false, maxAge: 0 }));
+// Serve static frontend files and uploads with browser caching
+app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '7d', etag: true }));
+app.use(express.static(__dirname, { etag: true, maxAge: '1h' }));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -224,8 +224,8 @@ function requireAuth(req, res, next) {
 
 function isModerator(user) {
   if (!user) return false;
-  const uname = (user.username || '').toLowerCase();
-  return user.badge === 'ADMIN' || user.badge === 'MODERATOR' || uname === 'kerryrbq';
+  const uname = (user.username || '').toLowerCase().trim();
+  return user.badge === 'ADMIN' || user.badge === 'MODERATOR' || uname === 'kerryrbq' || user.id === 'u-1789205573347' || user.isModerator === true;
 }
 
 function requireModerator(req, res, next) {
@@ -594,10 +594,25 @@ app.get('/api/scripts', (req, res) => {
 
   // Format response (count likes, check if current user liked)
   const currentUserId = req.user ? req.user.id : null;
+  const includeCode = req.query.includeCode === 'true';
   const result = list.map(s => {
     const userRatingObj = (s.ratings || []).find(r => r.userId === currentUserId);
-    return {
-      ...s,
+    const item = {
+      id: s.id,
+      title: s.title,
+      authorId: s.authorId,
+      author: s.author,
+      authorAvatar: s.authorAvatar,
+      category: s.category,
+      extension: s.extension,
+      status: s.status,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      coverImage: s.coverImage,
+      presetCover: s.presetCover,
+      tags: s.tags,
+      description: s.description,
+      views: s.views,
       likesCount: (s.likes || []).length,
       isLiked: currentUserId ? (s.likes || []).includes(currentUserId) : false,
       commentsCount: (s.comments || []).length,
@@ -605,6 +620,10 @@ app.get('/api/scripts', (req, res) => {
       ratingsCount: (s.ratings || []).length,
       userRating: userRatingObj ? userRatingObj.rating : null
     };
+    if (includeCode) {
+      item.code = s.code;
+    }
+    return item;
   });
 
   res.json({ scripts: result });
@@ -933,6 +952,95 @@ app.get('/api/moderation/queue', requireAuth, requireModerator, (req, res) => {
   });
 });
 
+// Update / Edit Script (Author or Kerryrbq/Moderator)
+app.put('/api/scripts/:id', requireAuth, (req, res) => {
+  const script = db.scripts.find(s => s.id === req.params.id);
+  if (!script) {
+    return res.status(404).json({ error: 'Скрипт не найден' });
+  }
+
+  const isMod = isModerator(req.user);
+  const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+  if (!isAuthor && !isMod) {
+    return res.status(403).json({ error: 'У вас нет прав на редактирование этого скрипта' });
+  }
+
+  const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;
+
+  if (!title || !code) {
+    return res.status(400).json({ error: 'Название и код скрипта обязательны' });
+  }
+
+  const oldCode = (script.code || '').trim();
+  const newCode = (code || '').trim();
+  const codeChanged = oldCode !== newCode;
+
+  script.title = title.trim();
+  if (category) script.category = category;
+  if (extension) script.extension = extension;
+  script.code = newCode;
+  if (description !== undefined) script.description = description ? description.trim() : 'Описание отсутствует.';
+  if (tags !== undefined) {
+    script.tags = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : script.tags);
+  }
+
+  if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.trim()) {
+    if (imageBase64.startsWith('data:image')) {
+      const saved = saveBase64Image(imageBase64, 'script_cover');
+      script.coverImage = saved || imageBase64;
+    } else {
+      script.coverImage = imageBase64;
+    }
+  }
+  if (presetCover) script.presetCover = presetCover;
+
+  script.updatedAt = Date.now();
+
+  let message = '';
+  if (codeChanged) {
+    // If the Lua code changed, reset status to pending for moderation!
+    script.status = 'pending';
+    script.moderatedBy = null;
+    script.moderatedAt = null;
+
+    // Send notification to Kerryrbq
+    if (!isMod) {
+      const kerryUser = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
+      if (kerryUser) {
+        if (!db.notifications) db.notifications = [];
+        db.notifications.unshift({
+          id: 'n-' + Date.now(),
+          userId: kerryUser.id,
+          scriptId: script.id,
+          scriptTitle: script.title,
+          title: 'Код скрипта изменен на проверку ⏳',
+          message: `Автор ${req.user.username} изменил код скрипта «${script.title}». Требуется повторная проверка на запуск!`,
+          status: 'pending',
+          isRead: false,
+          createdAt: Date.now()
+        });
+      }
+    }
+    message = 'Скрипт обновлен! Исходный код был изменен, поэтому скрипт отправлен модератору Kerryrbq на повторную проверку ⏳';
+  } else {
+    message = 'Скрипт успешно обновлен! (Код не менялся, статус сохранен) ✅';
+  }
+
+  saveDB();
+
+  const currentUserId = req.user ? req.user.id : null;
+  res.json({
+    message,
+    codeChanged,
+    script: {
+      ...script,
+      likesCount: (script.likes || []).length,
+      isLiked: currentUserId ? (script.likes || []).includes(currentUserId) : false,
+      commentsCount: (script.comments || []).length
+    }
+  });
+});
+
 // Delete Script (Author or Kerryrbq/Moderator)
 app.delete('/api/scripts/:id', requireAuth, (req, res) => {
   const idx = db.scripts.findIndex(s => s.id === req.params.id);
@@ -941,7 +1049,9 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
   }
 
   const script = db.scripts[idx];
-  if (script.authorId !== req.user.id && !isModerator(req.user)) {
+  const isMod = isModerator(req.user);
+  const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+  if (!isAuthor && !isMod) {
     return res.status(403).json({ error: 'У вас нет прав на удаление этого скрипта' });
   }
 

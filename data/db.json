@@ -8,7 +8,8 @@
       "badge": "ADMIN",
       "bio": "Creator",
       "createdAt": 1789205573347,
-      "lastIp": "193.111.47.115"
+      "lastIp": "127.0.0.1",
+      "lastActiveAt": 1789643067573
     },
     {
       "id": "u-1789205893264",
@@ -816,9 +817,9 @@
       "createdAt": 1789413594235,
       "coverImage": "/uploads/script_cover_1789413594232_a75d0ac0.jpg",
       "presetCover": "neon-executor",
-      "views": 3,
+      "views": 4,
       "viewedIps": {
-        "127.0.0.1": 1789475896494
+        "127.0.0.1": 1789643067456
       },
       "likes": [],
       "tags": [
@@ -828,8 +829,9 @@
       "code": "local Players = game:GetService(\"Players\")\nlocal HttpService = game:GetService(\"HttpService\")\nlocal TeleportService = game:GetService(\"TeleportService\")\nlocal UIS = game:GetService(\"UserInputService\")\nlocal player = Players.LocalPlayer\nlocal PlaceId = game.PlaceId\n\nlocal BG1 = Color3.fromRGB(10, 10, 14)\nlocal BG2 = Color3.fromRGB(16, 16, 22)\nlocal ACC = Color3.fromRGB(130, 120, 255)\nlocal TXT = Color3.fromRGB(240, 240, 250)\nlocal TXT2 = Color3.fromRGB(120, 120, 140)\n\nlocal MIN_P, MAX_P = 1, 2\n\nlocal function create(class, parent, props)\n    local inst = Instance.new(class)\n    for k, v in pairs(props) do inst[k] = v end\n    inst.Parent = parent\n    return inst\nend\n\n-- GUI Setup\nlocal gui = create(\"ScreenGui\", player:WaitForChild(\"PlayerGui\"), {Name = \"AH_Fox\", ResetOnSpawn = false})\nlocal main = create(\"Frame\", gui, {\n    Size = UDim2.new(0, 280, 0, 250),\n    Position = UDim2.new(0.5, -140, 0.5, -125),\n    BackgroundColor3 = BG1,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", main, {CornerRadius = UDim.new(0, 10)})\ncreate(\"UIStroke\", main, {Color = ACC, Thickness = 1, Transparency = 0.4})\n\n-- Header\nlocal header = create(\"Frame\", main, {\n    Size = UDim2.new(1, 0, 0, 40),\n    BackgroundColor3 = BG2,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", header, {CornerRadius = UDim.new(0, 10)})\n\ncreate(\"TextLabel\", header, {\n    Size = UDim2.new(1, -50, 1, 0),\n    Position = UDim2.new(0, 12, 0, 0),\n    BackgroundTransparency = 1,\n    Text = \"ARTEM HUB <font color='#8278FF'>foxname</font>\",\n    RichText = true,\n    TextColor3 = TXT,\n    Font = Enum.Font.GothamBold,\n    TextSize = 13,\n    TextXAlignment = Enum.TextXAlignment.Left\n})\n\nlocal close = create(\"TextButton\", header, {\n    Size = UDim2.new(0, 24, 0, 24),\n    Position = UDim2.new(1, -30, 0.5, -12),\n    BackgroundColor3 = BG1,\n    Text = \"×\",\n    TextColor3 = TXT2,\n    Font = Enum.Font.GothamBold,\n    TextSize = 15,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", close, {CornerRadius = UDim.new(0, 5)})\n\n-- Info Card\nlocal info = create(\"Frame\", main, {\n    Size = UDim2.new(1, -24, 0, 44),\n    Position = UDim2.new(0, 12, 0, 50),\n    BackgroundColor3 = BG2,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", info, {CornerRadius = UDim.new(0, 8)})\n\nlocal function addStat(title, val, xOffset, color)\n    create(\"TextLabel\", info, {\n        Size = UDim2.new(0.5, -10, 0.4, 0),\n        Position = UDim2.new(xOffset, 10, 0, 4),\n        BackgroundTransparency = 1,\n        Text = title,\n        TextColor3 = TXT2,\n        Font = Enum.Font.Gotham,\n        TextSize = 8,\n        TextXAlignment = Enum.TextXAlignment.Left\n    })\n    return create(\"TextLabel\", info, {\n        Size = UDim2.new(0.5, -10, 0.5, 0),\n        Position = UDim2.new(xOffset, 10, 0.4, 0),\n        BackgroundTransparency = 1,\n        Text = val,\n        TextColor3 = color or TXT,\n        Font = Enum.Font.GothamBold,\n        TextSize = 11,\n        TextXAlignment = Enum.TextXAlignment.Left\n    })\nend\n\nlocal pCount = addStat(\"ТЕКУЩИЙ СЕРВЕР\", #Players:GetPlayers() .. \" игр.\", 0)\naddStat(\"ЦЕЛЬ ПОИСКА\", \"1-2 игр.\", 0.5, ACC)\n\n-- Settings Input (Min / Max Players)\nlocal setFrame = create(\"Frame\", main, {\n    Size = UDim2.new(1, -24, 0, 36),\n    Position = UDim2.new(0, 12, 0, 102),\n    BackgroundColor3 = BG2,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", setFrame, {CornerRadius = UDim.new(0, 8)})\n\ncreate(\"TextLabel\", setFrame, {\n    Size = UDim2.new(0.5, 0, 1, 0),\n    Position = UDim2.new(0, 10, 0, 0),\n    BackgroundTransparency = 1,\n    Text = \"Лимит игроков:\",\n    TextColor3 = TXT,\n    Font = Enum.Font.GothamMedium,\n    TextSize = 10,\n    TextXAlignment = Enum.TextXAlignment.Left\n})\n\nlocal function addInput(def, xPos, callback)\n    local box = create(\"TextBox\", setFrame, {\n        Size = UDim2.new(0, 30, 0, 22),\n        Position = UDim2.new(1, xPos, 0.5, -11),\n        BackgroundColor3 = BG1,\n        Text = tostring(def),\n        TextColor3 = ACC,\n        Font = Enum.Font.GothamBold,\n        TextSize = 10,\n        BorderSizePixel = 0,\n        ClearTextOnFocus = false\n    })\n    create(\"UICorner\", box, {CornerRadius = UDim.new(0, 4)})\n    box.FocusLost:Connect(function()\n        local val = tonumber(box.Text)\n        if val then callback(val) else box.Text = tostring(def) end\n    end)\nend\n\naddInput(MIN_P, -70, function(v) MIN_P = v end)\naddInput(MAX_P, -35, function(v) MAX_P = v end)\n\n-- Status Bar\nlocal sBar = create(\"Frame\", main, {\n    Size = UDim2.new(1, -24, 0, 24),\n    Position = UDim2.new(0, 12, 0, 146),\n    BackgroundColor3 = BG2,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", sBar, {CornerRadius = UDim.new(0, 6)})\n\nlocal sDot = create(\"Frame\", sBar, {\n    Size = UDim2.new(0, 6, 0, 6),\n    Position = UDim2.new(0, 8, 0.5, -3),\n    BackgroundColor3 = TXT2,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", sDot, {CornerRadius = UDim.new(1, 0)})\n\nlocal sTxt = create(\"TextLabel\", sBar, {\n    Size = UDim2.new(1, -24, 1, 0),\n    Position = UDim2.new(0, 20, 0, 0),\n    BackgroundTransparency = 1,\n    Text = \"ожидание\",\n    TextColor3 = TXT2,\n    Font = Enum.Font.Gotham,\n    TextSize = 9,\n    TextXAlignment = Enum.TextXAlignment.Left\n})\n\n-- Progress Bar\nlocal pBg = create(\"Frame\", main, {\n    Size = UDim2.new(1, -24, 0, 2),\n    Position = UDim2.new(0, 12, 0, 178),\n    BackgroundColor3 = BG2,\n    BorderSizePixel = 0\n})\nlocal pFill = create(\"Frame\", pBg, {\n    Size = UDim2.new(0, 0, 1, 0),\n    BackgroundColor3 = ACC,\n    BorderSizePixel = 0\n})\n\n-- Find Button\nlocal btn = create(\"TextButton\", main, {\n    Size = UDim2.new(1, -24, 0, 36),\n    Position = UDim2.new(0, 12, 0, 188),\n    BackgroundColor3 = ACC,\n    Text = \"Найти сервер\",\n    TextColor3 = Color3.new(1, 1, 1),\n    Font = Enum.Font.GothamBold,\n    TextSize = 12,\n    BorderSizePixel = 0\n})\ncreate(\"UICorner\", btn, {CornerRadius = UDim.new(0, 8)})\n\n-- Floating Toggle Button\nlocal float = create(\"TextButton\", gui, {\n    Size = UDim2.new(0, 36, 0, 36),\n    Position = UDim2.new(0, 15, 1, -50),\n    BackgroundColor3 = BG1,\n    Text = \"A\",\n    TextColor3 = ACC,\n    Font = Enum.Font.GothamBold,\n    TextSize = 14,\n    BorderSizePixel = 0,\n    Visible = false\n})\ncreate(\"UICorner\", float, {CornerRadius = UDim.new(1, 0)})\ncreate(\"UIStroke\", float, {Color = ACC, Thickness = 1})\n\n-- Show / Hide logic\nlocal function setUI(open)\n    main.Visible = open\n    float.Visible = not open\nend\nclose.MouseButton1Click:Connect(function() setUI(false) end)\nfloat.MouseButton1Click:Connect(function() setUI(true) end)\n\n-- Smooth Dragging for Mobile / PC\nlocal dragging, dragStart, startPos\nheader.InputBegan:Connect(function(i)\n    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then\n        dragging, dragStart, startPos = true, i.Position, main.Position\n        i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)\n    end\nend)\nUIS.InputChanged:Connect(function(i)\n    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then\n        local delta = i.Position - dragStart\n        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)\n    end\nend)\n\n-- Auto Update Player Count\ntask.spawn(function()\n    while main.Parent do\n        pCount.Text = #Players:GetPlayers() .. \" игр.\"\n        task.wait(3)\n    end\nend)\n\n-- Server Hop Logic\nlocal function findSmallServer()\n    sTxt.Text, sDot.BackgroundColor3 = \"сканирование...\", Color3.fromRGB(240, 180, 50)\n    pFill.Size = UDim2.new(0, 0, 1, 0)\n    \n    local cursor = \"\"\n    local attempts = 0\n    local checked = 0\n    local best = nil\n\n    while attempts < 15 do\n        attempts = attempts + 1\n        pFill.Size = UDim2.new(attempts / 15, 0, 1, 0)\n        \n        local url = string.format(\"https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100&cursor=%s\", PlaceId, cursor)\n        local ok, response = pcall(function() return HttpService:JSONDecode(game:HttpGet(url)) end)\n\n        if not ok or not response or not response.data then\n            sTxt.Text, sDot.BackgroundColor3 = \"ошибка API\", Color3.fromRGB(240, 50, 50)\n            return nil\n        end\n\n        for _, s in ipairs(response.data) do\n            checked = checked + 1\n            sTxt.Text = string.format(\"проверка #%d (%d игр.)\", checked, s.playing)\n            task.wait(0.01)\n\n            if s.playing >= MIN_P and s.playing <= MAX_P and s.id ~= game.JobId then\n                if not best or s.playing < best.playing then best = s end\n            end\n        end\n\n        if best then break end\n        cursor = response.nextPageCursor or \"\"\n        if cursor == \"\" then break end\n        task.wait(0.1)\n    end\n\n    if best then\n        pFill.Size = UDim2.new(1, 0, 1, 0)\n        sTxt.Text, sDot.BackgroundColor3 = \"сервер найден!\", Color3.fromRGB(50, 240, 100)\n        return best.id\n    end\n\n    sTxt.Text, sDot.BackgroundColor3 = \"не найдено\", Color3.fromRGB(240, 50, 50)\n    return nil\nend\n\nbtn.MouseButton1Click:Connect(function()\n    if not btn.Active then return end\n    btn.Active = false\n    btn.BackgroundColor3 = BG2\n    btn.Text = \"Поиск...\"\n\n    task.spawn(function()\n        local jobId = findSmallServer()\n        if jobId then\n            sTxt.Text = \"телепортация...\"\n            task.wait(0.5)\n            pcall(function() TeleportService:TeleportToPlaceInstance(PlaceId, jobId, player) end)\n        end\n        task.wait(1)\n        btn.Active = true\n        btn.BackgroundColor3 = ACC\n        btn.Text = \"Найти сервер\"\n    end)\nend)",
       "comments": [],
       "moderatedBy": "Kerryrbq",
-      "moderatedAt": 1789414034416,
-      "moderatorNote": ""
+      "moderatedAt": 1789643067573,
+      "moderatorNote": "",
+      "updatedAt": 1789643067557
     },
     {
       "id": "script-1789410406982",
@@ -1997,9 +1999,21 @@
     "faab701352635c4e3bfeff409016993701828c47eb54a9bcb8e8719467cc55fb": "u-1789567830456",
     "2337588e483a97175f331b493aafce1449874eaf304fc32ed928d2fa20ba3baa": "u-1789568110454",
     "186844b35fb4258614bf27d9a96cddbd84357cb9d302b56ba5a4a352df5ba25b": "u-1789568194681",
-    "f79223acce4cf53988e408b67f06660708dcd5657ef07fa1aa974f5003c928eb": "u-1789568244925"
+    "f79223acce4cf53988e408b67f06660708dcd5657ef07fa1aa974f5003c928eb": "u-1789568244925",
+    "u-1789205573347.1789643067474.a215dd3ec3a2ca1826d0846ea90e63ebfe045b5e361188e9ed83b2bd2cbdf1a2": "u-1789205573347"
   },
   "notifications": [
+    {
+      "id": "n-1789643067573",
+      "userId": "u-1789394530597",
+      "scriptId": "script-1789413594235",
+      "scriptTitle": "ARTEM HUB | ПОИСК СЕРВЕРОВ ГДЕ МАЛО ЛЮДЕЙ!",
+      "title": "Статус скрипта изменен ✅",
+      "message": "Ваш скрипт «ARTEM HUB | ПОИСК СЕРВЕРОВ ГДЕ МАЛО ЛЮДЕЙ!» одобрен и проверен на запуск 🟢 (Проверено на запуск)",
+      "status": "verified",
+      "isRead": false,
+      "createdAt": 1789643067573
+    },
     {
       "id": "n-1789568382385",
       "userId": "u-1789205573347",
@@ -3112,5 +3126,5 @@
   ],
   "userReviews": [],
   "bannedIps": [],
-  "lastActiveUserToken": "cf45002dde32772bf94b470c8aea37a325b5cf9bcc51af2a447197e959ea7150"
+  "lastActiveUserToken": "u-1789205573347.1789643067511.cbdcab33cd64d4b8aaff56540f850688e28779d81af6640fa16b483a6a48758d"
 }

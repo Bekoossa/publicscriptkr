@@ -233,12 +233,12 @@ module.exports = async function handler(req, res) {
       const { category, search, sort, status, authorId, all } = Object.fromEntries(url.searchParams);
       let list = [...db.scripts];
       if (status) {
-        list = list.filter(s => s.status === status);
+        list = list.filter(s => (s.status || 'pending') === status);
       } else if (!all) {
         if (authorId) {
           list = list.filter(s => s.authorId === authorId);
-        } else {
-          list = list.filter(s => s.status !== 'rejected');
+        } else if (!req.user || !isModerator(req.user)) {
+          list = list.filter(s => (s.status || 'pending') === 'verified');
         }
       }
       if (category && category !== 'all') {
@@ -262,11 +262,26 @@ module.exports = async function handler(req, res) {
       else if (sort === 'comments') list.sort((a, b) => ((b.comments || []).length) - ((a.comments || []).length));
       else list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
+      const includeCode = url.searchParams.get('includeCode') === 'true';
       const uid = req.user ? req.user.id : null;
       const result = list.map(s => {
         const ur = (s.ratings || []).find(r => r.userId === uid);
-        return {
-          ...s,
+        const item = {
+          id: s.id,
+          title: s.title,
+          authorId: s.authorId,
+          author: s.author,
+          authorAvatar: s.authorAvatar,
+          category: s.category,
+          extension: s.extension,
+          status: s.status,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          coverImage: s.coverImage,
+          presetCover: s.presetCover,
+          tags: s.tags,
+          description: s.description,
+          views: s.views,
           likesCount: (s.likes || []).length,
           isLiked: uid ? (s.likes || []).includes(uid) : false,
           commentsCount: (s.comments || []).length,
@@ -274,6 +289,10 @@ module.exports = async function handler(req, res) {
           ratingsCount: (s.ratings || []).length,
           userRating: ur ? ur.rating : null
         };
+        if (includeCode) {
+          item.code = s.code;
+        }
+        return item;
       });
       return res.json({ scripts: result });
     }
@@ -355,6 +374,82 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    // PUT /api/scripts/:id
+    const scriptPutMatch = path.match(/^\/api\/scripts\/([^/]+)$/);
+    if (scriptPutMatch && method === 'PUT') {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      const script = db.scripts.find(s => s.id === scriptPutMatch[1]);
+      if (!script) return res.status(404).json({ error: 'Script not found' });
+
+      const isMod = isModerator(req.user);
+      const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+      if (!isAuthor && !isMod) {
+        return res.status(403).json({ error: 'No permission' });
+      }
+
+      const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;
+      if (!title || !code) return res.status(400).json({ error: 'Title and code required' });
+
+      const oldCode = (script.code || '').trim();
+      const newCode = (code || '').trim();
+      const codeChanged = oldCode !== newCode;
+
+      script.title = title.trim();
+      if (category) script.category = category;
+      if (extension) script.extension = extension;
+      script.code = newCode;
+      if (description !== undefined) script.description = description ? description.trim() : 'No description.';
+      if (tags !== undefined) {
+        script.tags = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : script.tags);
+      }
+      if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.trim()) {
+        script.coverImage = imageBase64;
+      }
+      if (presetCover) script.presetCover = presetCover;
+      script.updatedAt = Date.now();
+
+      let message = '';
+      if (codeChanged) {
+        script.status = 'pending';
+        script.moderatedBy = null;
+        script.moderatedAt = null;
+
+        if (!isMod) {
+          const kerry = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
+          if (kerry) {
+            if (!db.notifications) db.notifications = [];
+            db.notifications.unshift({
+              id: 'n-' + Date.now(),
+              userId: kerry.id,
+              scriptId: script.id,
+              scriptTitle: script.title,
+              title: 'Код скрипта изменен на проверку ⏳',
+              message: `Автор ${req.user.username} изменил код скрипта «${script.title}». Требуется повторная проверка!`,
+              status: 'pending',
+              isRead: false,
+              createdAt: Date.now()
+            });
+          }
+        }
+        message = 'Скрипт обновлен! Исходный код был изменен, поэтому скрипт отправлен на повторную проверку ⏳';
+      } else {
+        message = 'Скрипт успешно обновлен! (Код не менялся, статус сохранен) ✅';
+      }
+
+      await saveDB(kv);
+      const uid = req.user ? req.user.id : null;
+      return res.json({
+        message,
+        codeChanged,
+        script: {
+          ...script,
+          likesCount: (script.likes || []).length,
+          isLiked: uid ? (script.likes || []).includes(uid) : false,
+          commentsCount: (script.comments || []).length
+        }
+      });
+    }
+
     // DELETE /api/scripts/:id
     const scriptDelMatch = path.match(/^\/api\/scripts\/([^/]+)$/);
     if (scriptDelMatch && method === 'DELETE') {
@@ -362,7 +457,9 @@ module.exports = async function handler(req, res) {
       const idx = db.scripts.findIndex(s => s.id === scriptDelMatch[1]);
       if (idx === -1) return res.status(404).json({ error: 'Script not found' });
       const script = db.scripts[idx];
-      if (script.authorId !== req.user.id && !isModerator(req.user)) {
+      const isMod = isModerator(req.user);
+      const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+      if (!isAuthor && !isMod) {
         return res.status(403).json({ error: 'No permission' });
       }
       db.scripts.splice(idx, 1);
