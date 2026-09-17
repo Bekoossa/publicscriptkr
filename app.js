@@ -5,9 +5,57 @@
  * and file uploads saved to disk.
  */
 
+// Cookie & Auth Transfer Helpers
+function getCookie(name) {
+  try {
+    const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[2]) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function setCookie(name, value, days = 365) {
+  try {
+    const maxAge = days * 24 * 60 * 60;
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  } catch (e) {}
+}
+
+function deleteCookie(name) {
+  try {
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+  } catch (e) {}
+}
+
+function extractAuthTokenFromUrl() {
+  try {
+    const hashMatch = window.location.hash.match(/[#&](?:auth|token)=([^&]+)/);
+    if (hashMatch && hashMatch[1]) {
+      return decodeURIComponent(hashMatch[1]);
+    }
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryToken = urlParams.get('auth') || urlParams.get('token');
+    if (queryToken) {
+      return queryToken;
+    }
+  } catch(e) {}
+  return null;
+}
+
+const _initialUrlToken = extractAuthTokenFromUrl();
+if (_initialUrlToken) {
+  try {
+    localStorage.setItem('pskr_token', _initialUrlToken);
+    localStorage.setItem('pskr_auth_token', _initialUrlToken);
+    setCookie('pskr_token', _initialUrlToken, 365);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  } catch(e) {}
+}
+
 // Global State
 const State = {
-  token: localStorage.getItem('pskr_token') || localStorage.getItem('pskr_auth_token') || null,
+  token: _initialUrlToken || localStorage.getItem('pskr_token') || localStorage.getItem('pskr_auth_token') || getCookie('pskr_token') || null,
   currentUser: null,
   activeCategory: 'all',
   sortBy: 'newest',
@@ -422,10 +470,11 @@ window.DebugConsole = DebugConsole;
 
 async function attemptAutoRefreshSession() {
   try {
-    const username = State.currentUser?.username || 'Kerryrbq';
+    const username = State.currentUser?.username || localStorage.getItem('pskr_saved_username') || 'Kerryrbq';
     const userId = State.currentUser?.id;
     const res = await fetch('/api/auth/refresh-token', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, userId })
     });
@@ -435,7 +484,10 @@ async function attemptAutoRefreshSession() {
         State.token = data.token;
         State.currentUser = data.user;
         localStorage.setItem('pskr_token', data.token);
+        localStorage.setItem('pskr_auth_token', data.token);
         localStorage.setItem('pskr_user', JSON.stringify(data.user));
+        if (data.user?.username) localStorage.setItem('pskr_saved_username', data.user.username);
+        setCookie('pskr_token', data.token, 365);
         renderUserNav(data.user);
         return true;
       }
@@ -464,7 +516,7 @@ async function api(url, options = {}, isRetry = false) {
   DebugConsole.log('api', `🚀 [${method}] ${url}`, { headers, body: options.body });
 
   try {
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers, credentials: 'include' });
     const duration = Date.now() - startTime;
     let data;
     try {
@@ -567,6 +619,18 @@ function highlightTxtLine(line) {
 // ============================================================================
 
 async function checkAuthSession() {
+  // 0. Transfer token from URL hash or query if present (from start.bat or launcher)
+  const urlToken = extractAuthTokenFromUrl();
+  if (urlToken) {
+    State.token = urlToken;
+    localStorage.setItem('pskr_token', urlToken);
+    localStorage.setItem('pskr_auth_token', urlToken);
+    setCookie('pskr_token', urlToken, 365);
+    try {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } catch(e) {}
+  }
+
   // 1. Immediately render cached user from localStorage (zero delay on reload)
   const cachedUserStr = localStorage.getItem('pskr_user');
   if (cachedUserStr) {
@@ -577,8 +641,35 @@ async function checkAuthSession() {
     } catch (e) {}
   }
 
-  // 2. If token is missing OR is legacy non-HMAC token, auto-upgrade/refresh it
-  if (State.currentUser && (!State.token || !State.token.includes('.'))) {
+  // 2. If token is missing, attempt auto-restore from server (via cookie, localhost, or IP session)
+  if (!State.token) {
+    try {
+      const restoreRes = await fetch('/api/auth/session-restore', {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (restoreRes.ok) {
+        const restoreData = await restoreRes.json();
+        if (restoreData && restoreData.token && restoreData.user) {
+          State.token = restoreData.token;
+          State.currentUser = restoreData.user;
+          localStorage.setItem('pskr_token', restoreData.token);
+          localStorage.setItem('pskr_auth_token', restoreData.token);
+          localStorage.setItem('pskr_user', JSON.stringify(restoreData.user));
+          if (restoreData.user.username) localStorage.setItem('pskr_saved_username', restoreData.user.username);
+          setCookie('pskr_token', restoreData.token, 365);
+          renderUserNav(restoreData.user, true);
+          DebugConsole.log('auth', `Session auto-restored for ${restoreData.user.username}`);
+          return;
+        }
+      }
+    } catch (e) {
+      DebugConsole.log('warn', `Session restore attempt error: ${e.message}`);
+    }
+  }
+
+  // 3. If token is legacy non-HMAC token, auto-upgrade/refresh it
+  if (State.currentUser && State.token && !State.token.includes('.')) {
     DebugConsole.log('auth', `Upgrading session token for ${State.currentUser.username}...`);
     await attemptAutoRefreshSession();
   }
@@ -589,12 +680,14 @@ async function checkAuthSession() {
     return;
   }
 
-  // 3. Validate token with /api/auth/me
+  // 4. Validate token with /api/auth/me
   try {
     const data = await api('/api/auth/me');
     if (data && data.user) {
       State.currentUser = data.user;
       localStorage.setItem('pskr_user', JSON.stringify(data.user));
+      if (data.user.username) localStorage.setItem('pskr_saved_username', data.user.username);
+      setCookie('pskr_token', State.token, 365);
       renderUserNav(data.user, true);
       DebugConsole.log('auth', `Session verified: ${data.user.username} [${data.user.badge || 'MEMBER'}]`);
     } else {
@@ -602,7 +695,13 @@ async function checkAuthSession() {
       if (refreshed) {
         renderUserNav(State.currentUser, true);
       } else {
-        logoutUser(false);
+        State.currentUser = null;
+        State.token = null;
+        localStorage.removeItem('pskr_token');
+        localStorage.removeItem('pskr_auth_token');
+        localStorage.removeItem('pskr_user');
+        deleteCookie('pskr_token');
+        renderUserNav(null, false);
       }
     }
   } catch (err) {
@@ -779,6 +878,7 @@ async function logoutUser(showNotification = true) {
   localStorage.removeItem('pskr_token');
   localStorage.removeItem('pskr_auth_token');
   localStorage.removeItem('pskr_user');
+  deleteCookie('pskr_token');
   renderUserNav(null);
   if (showNotification) {
     showToast('Вы вышли из аккаунта', 'info');
@@ -807,6 +907,13 @@ function openAuthModal(mode = 'login') {
     formLogin.classList.remove('hidden');
     formReg.classList.add('hidden');
     modalTitle.textContent = 'Вход в аккаунт';
+
+    // Autofill saved username if available
+    const savedUser = localStorage.getItem('pskr_saved_username');
+    const uInput = document.getElementById('loginUsernameInput');
+    if (savedUser && uInput && !uInput.value) {
+      uInput.value = savedUser;
+    }
   }
 
   renderRegisterAvatars();
@@ -2142,7 +2249,10 @@ function setupEventListeners() {
       State.token = data.token;
       State.currentUser = data.user;
       localStorage.setItem('pskr_token', data.token);
+      localStorage.setItem('pskr_auth_token', data.token);
       localStorage.setItem('pskr_user', JSON.stringify(data.user));
+      if (data.user?.username) localStorage.setItem('pskr_saved_username', data.user.username);
+      setCookie('pskr_token', data.token, 365);
       renderUserNav(data.user);
       closeAuthModal();
       showToast(`Добро пожаловать, ${data.user.username}!`, 'success');
@@ -2171,7 +2281,10 @@ function setupEventListeners() {
       State.token = data.token;
       State.currentUser = data.user;
       localStorage.setItem('pskr_token', data.token);
+      localStorage.setItem('pskr_auth_token', data.token);
       localStorage.setItem('pskr_user', JSON.stringify(data.user));
+      if (data.user?.username) localStorage.setItem('pskr_saved_username', data.user.username);
+      setCookie('pskr_token', data.token, 365);
       renderUserNav(data.user);
       closeAuthModal();
       showToast(`Аккаунт ${data.user.username} успешно создан!`, 'success');
@@ -2872,13 +2985,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuthSession();
   await updatePlatformStats();
   await loadScriptsFeed();
-
-  // If visitor is NOT logged in, prompt Login / Registration
-  if (!State.currentUser) {
-    setTimeout(() => {
-      openAuthModal('register');
-    }, 400);
-  }
 
   console.log('[PublicScriptKR] Client connected to host backend.');
 

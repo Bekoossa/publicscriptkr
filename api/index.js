@@ -2,6 +2,18 @@ const { createHash, randomBytes } = require('crypto');
 const { kv } = require('@vercel/kv');
 const { DEFAULT_AVATARS, hashPassword, generateToken, verifyToken, getDB, saveDB, isModerator } = require('../lib/db');
 
+function parseCookies(req) {
+  const list = {};
+  const rc = req.headers.cookie;
+  if (!rc) return list;
+  rc.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    const name = parts.shift()?.trim();
+    if (name) list[name] = decodeURIComponent(parts.join('=').trim());
+  });
+  return list;
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
@@ -15,11 +27,18 @@ module.exports = async function handler(req, res) {
   try {
     const db = await getDB(kv);
 
-    // Auth middleware (stateless HMAC verification + in-memory fallback)
+    // Auth middleware (stateless HMAC verification + cookies + in-memory fallback)
     req.user = null;
+    const cookies = parseCookies(req);
+    let token = null;
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
+      token = authHeader.split(' ')[1];
+    } else if (cookies.pskr_token) {
+      token = cookies.pskr_token;
+    }
+
+    if (token) {
       const verifiedUserId = verifyToken(token) || (db.tokens ? db.tokens[token] : null);
       if (verifiedUserId) {
         let user = db.users.find(u => u.id === verifiedUserId);
@@ -65,7 +84,11 @@ module.exports = async function handler(req, res) {
       const token = generateToken(newUser.id);
       if (!db.tokens) db.tokens = {};
       db.tokens[token] = newUser.id;
+      db.lastActiveUserToken = token;
+      newUser.lastIp = clientIp;
+      newUser.lastActiveAt = Date.now();
       await saveDB(kv);
+      res.setHeader('Set-Cookie', `pskr_token=${token}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
       const safe = { ...newUser, isModerator: isModerator(newUser) };
       delete safe.passwordHash;
       return res.status(201).json({ message: 'Account created!', user: safe, token });
@@ -82,7 +105,11 @@ module.exports = async function handler(req, res) {
       const token = generateToken(user.id);
       if (!db.tokens) db.tokens = {};
       db.tokens[token] = user.id;
+      db.lastActiveUserToken = token;
+      user.lastIp = clientIp;
+      user.lastActiveAt = Date.now();
       await saveDB(kv);
+      res.setHeader('Set-Cookie', `pskr_token=${token}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
       const safe = { ...user, isModerator: isModerator(user) };
       delete safe.passwordHash;
       return res.json({ message: 'Login successful!', user: safe, token });
@@ -91,21 +118,50 @@ module.exports = async function handler(req, res) {
     // GET /api/auth/session-restore
     if (path === '/api/auth/session-restore' && method === 'GET') {
       if (req.user) {
+        const freshToken = generateToken(req.user.id);
+        if (!db.tokens) db.tokens = {};
+        db.tokens[freshToken] = req.user.id;
+        db.lastActiveUserToken = freshToken;
+        await saveDB(kv);
+        res.setHeader('Set-Cookie', `pskr_token=${freshToken}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
         const safe = { ...req.user, isModerator: isModerator(req.user) };
         delete safe.passwordHash;
-        const token = authHeader ? authHeader.split(' ')[1] : null;
-        return res.json({ token, user: safe });
+        return res.json({ token: freshToken, user: safe });
       }
+
+      // Check matching lastIp
+      if (clientIp && clientIp !== '127.0.0.1') {
+        const matching = (db.users || []).filter(u => u.lastIp === clientIp && (!u.bans || !u.bans.full));
+        if (matching.length === 1) {
+          const candidate = matching[0];
+          const freshToken = generateToken(candidate.id);
+          if (!db.tokens) db.tokens = {};
+          db.tokens[freshToken] = candidate.id;
+          db.lastActiveUserToken = freshToken;
+          await saveDB(kv);
+          res.setHeader('Set-Cookie', `pskr_token=${freshToken}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
+          const safe = { ...candidate, isModerator: isModerator(candidate) };
+          delete safe.passwordHash;
+          return res.json({ token: freshToken, user: safe });
+        }
+      }
+
       return res.json({ user: null, token: null });
     }
 
     // POST /api/auth/logout
     if (path === '/api/auth/logout' && method === 'POST') {
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
-        if (db.tokens) delete db.tokens[token];
+      const authHeader = req.headers.authorization;
+      const cookies = parseCookies(req);
+      let token = null;
+      if (authHeader && authHeader.startsWith('Bearer ')) token = authHeader.split(' ')[1];
+      else if (cookies.pskr_token) token = cookies.pskr_token;
+      if (token && db.tokens) {
+        delete db.tokens[token];
+        if (db.lastActiveUserToken === token) delete db.lastActiveUserToken;
         await saveDB(kv);
       }
+      res.setHeader('Set-Cookie', 'pskr_token=; Path=/; Max-Age=0; SameSite=Lax; Secure');
       return res.json({ success: true });
     }
 
@@ -125,7 +181,9 @@ module.exports = async function handler(req, res) {
         const freshToken = generateToken(targetUser.id);
         if (!db.tokens) db.tokens = {};
         db.tokens[freshToken] = targetUser.id;
+        db.lastActiveUserToken = freshToken;
         await saveDB(kv);
+        res.setHeader('Set-Cookie', `pskr_token=${freshToken}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
         const safe = { ...targetUser, isModerator: isModerator(targetUser) };
         delete safe.passwordHash;
         return res.json({ token: freshToken, user: safe, refreshed: true });

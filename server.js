@@ -147,11 +147,25 @@ function saveBase64Image(dataUrl, prefix = 'img') {
   }
 }
 
+// Cookie Parser Helper
+function parseCookies(req) {
+  const list = {};
+  const rc = req.headers.cookie;
+  if (!rc) return list;
+  rc.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    const name = parts.shift()?.trim();
+    if (name) list[name] = decodeURIComponent(parts.join('=').trim());
+  });
+  return list;
+}
+
 // Authentication & Security Middleware
 function authMiddleware(req, res, next) {
   // Extract client IP
   const forwarded = req.headers['x-forwarded-for'];
-  const clientIp = forwarded ? forwarded.split(',')[0].trim() : (req.ip || req.connection?.remoteAddress || '127.0.0.1');
+  const cfConnectingIp = req.headers['cf-connecting-ip'];
+  const clientIp = cfConnectingIp || (forwarded ? forwarded.split(',')[0].trim() : (req.ip || req.connection?.remoteAddress || '127.0.0.1'));
   req.clientIp = clientIp;
 
   // Check IP ban
@@ -162,12 +176,20 @@ function authMiddleware(req, res, next) {
     });
   }
 
+  const cookies = parseCookies(req);
+  let token = null;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (cookies.pskr_token) {
+    token = cookies.pskr_token;
+  }
+
+  if (!token) {
     req.user = null;
     return next();
   }
-  const token = authHeader.split(' ')[1];
+
   const userId = verifyToken(token) || (db.tokens ? db.tokens[token] : null);
   if (!userId) {
     req.user = null;
@@ -179,6 +201,8 @@ function authMiddleware(req, res, next) {
   }
   if (user) {
     user.lastIp = clientIp;
+    user.lastActiveAt = Date.now();
+    db.lastActiveUserToken = token;
     // Check full account ban
     if (user.bans && user.bans.full) {
       req.user = null;
@@ -276,7 +300,17 @@ app.post('/api/auth/register', (req, res) => {
   const token = generateToken(newUser.id);
   if (!db.tokens) db.tokens = {};
   db.tokens[token] = newUser.id;
+  db.lastActiveUserToken = token;
+  newUser.lastIp = req.clientIp;
+  newUser.lastActiveAt = Date.now();
   saveDB();
+
+  res.cookie('pskr_token', token, {
+    maxAge: 365 * 24 * 60 * 60 * 1000,
+    httpOnly: false,
+    sameSite: 'Lax',
+    path: '/'
+  });
 
   const userSafe = { ...newUser, isModerator: isModerator(newUser) };
   delete userSafe.passwordHash;
@@ -306,7 +340,16 @@ app.post('/api/auth/login', (req, res) => {
   if (!db.tokens) db.tokens = {};
   db.tokens[token] = user.id;
   db.lastActiveUserToken = token;
+  user.lastIp = req.clientIp;
+  user.lastActiveAt = Date.now();
   saveDB();
+
+  res.cookie('pskr_token', token, {
+    maxAge: 365 * 24 * 60 * 60 * 1000,
+    httpOnly: false,
+    sameSite: 'Lax',
+    path: '/'
+  });
 
   const userSafe = { ...user, isModerator: isModerator(user) };
   delete userSafe.passwordHash;
@@ -330,11 +373,25 @@ app.post('/api/auth/refresh-token', (req, res) => {
   if (!targetUser && username && username.toLowerCase() === 'kerryrbq') {
     targetUser = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
   }
+  if (!targetUser && db.lastActiveUserToken) {
+    const uid = verifyToken(db.lastActiveUserToken) || (db.tokens ? db.tokens[db.lastActiveUserToken] : null);
+    targetUser = db.users.find(u => u.id === uid);
+  }
   if (targetUser) {
     const freshToken = generateToken(targetUser.id);
     if (!db.tokens) db.tokens = {};
     db.tokens[freshToken] = targetUser.id;
+    db.lastActiveUserToken = freshToken;
+    targetUser.lastActiveAt = Date.now();
     saveDB();
+
+    res.cookie('pskr_token', freshToken, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: false,
+      sameSite: 'Lax',
+      path: '/'
+    });
+
     const userSafe = { ...targetUser, isModerator: isModerator(targetUser) };
     delete userSafe.passwordHash;
     return res.json({ token: freshToken, user: userSafe, refreshed: true });
@@ -355,15 +412,62 @@ app.get('/api/debug/diagnostics', (req, res) => {
   });
 });
 
-// Session Restore (auto-login on reload / reopen)
-// Only restores session if client provides a valid token via Authorization header
+// Session Restore (auto-login on reload / reopen / cross-domain launch)
 app.get('/api/auth/session-restore', (req, res) => {
+  // 1. If req.user is already authenticated via Bearer token or Cookie
   if (req.user) {
+    const freshToken = generateToken(req.user.id);
+    if (!db.tokens) db.tokens = {};
+    db.tokens[freshToken] = req.user.id;
+    db.lastActiveUserToken = freshToken;
+    saveDB();
+    res.cookie('pskr_token', freshToken, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: false,
+      sameSite: 'Lax',
+      path: '/'
+    });
     const userSafe = { ...req.user, isModerator: isModerator(req.user) };
     delete userSafe.passwordHash;
-    const authHeader = req.headers.authorization;
-    const token = authHeader ? authHeader.split(' ')[1] : null;
-    return res.json({ token, user: userSafe });
+    return res.json({ token: freshToken, user: userSafe });
+  }
+
+  // 2. Check if request is from localhost / host machine
+  const isLocalhost = req.clientIp === '127.0.0.1' || req.clientIp === '::1' || req.clientIp === '::ffff:127.0.0.1' || req.clientIp === 'localhost';
+  let candidateUser = null;
+
+  if (isLocalhost && db.lastActiveUserToken) {
+    const uid = verifyToken(db.lastActiveUserToken) || (db.tokens ? db.tokens[db.lastActiveUserToken] : null);
+    candidateUser = db.users.find(u => u.id === uid);
+    if (!candidateUser) {
+      candidateUser = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
+    }
+  }
+
+  // 3. Fallback: match by lastIp (if within same IP and not banned)
+  if (!candidateUser && req.clientIp && req.clientIp !== '127.0.0.1') {
+    const matchingUsers = (db.users || []).filter(u => u.lastIp === req.clientIp && (!u.bans || !u.bans.full));
+    if (matchingUsers.length === 1) {
+      candidateUser = matchingUsers[0];
+    }
+  }
+
+  if (candidateUser) {
+    const freshToken = generateToken(candidateUser.id);
+    if (!db.tokens) db.tokens = {};
+    db.tokens[freshToken] = candidateUser.id;
+    db.lastActiveUserToken = freshToken;
+    candidateUser.lastActiveAt = Date.now();
+    saveDB();
+    res.cookie('pskr_token', freshToken, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: false,
+      sameSite: 'Lax',
+      path: '/'
+    });
+    const userSafe = { ...candidateUser, isModerator: isModerator(candidateUser) };
+    delete userSafe.passwordHash;
+    return res.json({ token: freshToken, user: userSafe });
   }
 
   res.json({ user: null, token: null });
@@ -371,13 +475,20 @@ app.get('/api/auth/session-restore', (req, res) => {
 
 // Logout
 app.post('/api/auth/logout', (req, res) => {
+  const cookies = parseCookies(req);
   const authHeader = req.headers.authorization;
+  let token = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
+    token = authHeader.split(' ')[1];
+  } else if (cookies.pskr_token) {
+    token = cookies.pskr_token;
+  }
+  if (token) {
     if (db.tokens) delete db.tokens[token];
     if (db.lastActiveUserToken === token) delete db.lastActiveUserToken;
     saveDB();
   }
+  res.clearCookie('pskr_token', { path: '/' });
   res.json({ success: true });
 });
 

@@ -74,7 +74,9 @@ powershell -Command ^
     "Write-Host '';" ^
     "Write-Host '[Tunnel] Waiting 8 seconds for tunnel to stabilize...';" ^
     "Start-Sleep -Seconds 8;" ^
-    "Start-Process $url;" ^
+    "$t = $null;" ^
+    "if (Test-Path '%~dp0data\db.json') { try { $t = (Get-Content '%~dp0data\db.json' -Raw | ConvertFrom-Json).lastActiveUserToken; } catch {} };" ^
+    "if ($t) { Start-Process ($url + '#auth=' + $t); } else { Start-Process $url; };" ^
     "Write-Host '[Tunnel] Browser opened!';" ^
     "$cf.WaitForExit();"
 
