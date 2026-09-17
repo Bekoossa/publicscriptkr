@@ -625,6 +625,44 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, m => map[m]);
 }
 
+// Global Action Loading Overlay helpers
+function showActionLoading({ title = 'Выполнение...', subtitle = 'Синхронизация с сервером...', icon = 'fa-solid fa-spinner fa-spin' } = {}) {
+  const overlay = document.getElementById('actionLoadingOverlay');
+  if (!overlay) return;
+  const titleEl = document.getElementById('actionLoadingTitle');
+  const subEl = document.getElementById('actionLoadingSubtitle');
+  const iconEl = document.getElementById('actionLoadingIcon');
+  if (titleEl) titleEl.textContent = title;
+  if (subEl) subEl.textContent = subtitle;
+  if (iconEl) iconEl.innerHTML = `<i class="${icon}"></i>`;
+  overlay.classList.remove('hidden');
+}
+
+function updateActionLoading({ title, subtitle, icon } = {}) {
+  if (title) {
+    const titleEl = document.getElementById('actionLoadingTitle');
+    if (titleEl) titleEl.textContent = title;
+  }
+  if (subtitle) {
+    const subEl = document.getElementById('actionLoadingSubtitle');
+    if (subEl) subEl.textContent = subtitle;
+  }
+  if (icon) {
+    const iconEl = document.getElementById('actionLoadingIcon');
+    if (iconEl) iconEl.innerHTML = `<i class="${icon}"></i>`;
+  }
+}
+
+function hideActionLoading(delayMs = 0) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      const overlay = document.getElementById('actionLoadingOverlay');
+      if (overlay) overlay.classList.add('hidden');
+      resolve();
+    }, delayMs);
+  });
+}
+
 // Syntax formatting per line (for unified row alignment)
 function highlightLuaLine(line) {
   let escaped = escapeHtml(line);
@@ -1204,20 +1242,28 @@ function formatRelativeTime(ts) {
 function markScriptDeletedLocally(scriptId) {
   if (!scriptId) return;
   try {
-    const list = JSON.parse(sessionStorage.getItem('pskr_deleted_scripts') || '[]');
-    if (!list.includes(scriptId)) list.push(scriptId);
-    sessionStorage.setItem('pskr_deleted_scripts', JSON.stringify(list));
+    const sList = JSON.parse(sessionStorage.getItem('pskr_deleted_scripts') || '[]');
+    if (!sList.includes(scriptId)) sList.push(scriptId);
+    sessionStorage.setItem('pskr_deleted_scripts', JSON.stringify(sList));
+  } catch(e) {}
+  try {
+    const lList = JSON.parse(localStorage.getItem('pskr_deleted_scripts') || '[]');
+    if (!lList.includes(scriptId)) lList.push(scriptId);
+    localStorage.setItem('pskr_deleted_scripts', JSON.stringify(lList.slice(-200)));
   } catch(e) {}
 }
 
 function isScriptDeletedLocally(scriptId) {
   if (!scriptId) return false;
   try {
-    const list = JSON.parse(sessionStorage.getItem('pskr_deleted_scripts') || '[]');
-    return list.includes(scriptId);
-  } catch(e) {
-    return false;
-  }
+    const sList = JSON.parse(sessionStorage.getItem('pskr_deleted_scripts') || '[]');
+    if (sList.includes(scriptId)) return true;
+  } catch(e) {}
+  try {
+    const lList = JSON.parse(localStorage.getItem('pskr_deleted_scripts') || '[]');
+    if (lList.includes(scriptId)) return true;
+  } catch(e) {}
+  return false;
 }
 
 function updateLocalPublishedScriptStatus(scriptId, status) {
@@ -1566,7 +1612,10 @@ function switchDetailTab(tabName) {
   }
 }
 
+let _isModerating = false;
 async function handleModerateScript(status, targetScriptId = null) {
+  if (_isModerating) return;
+
   if (!isUserModerator(State.currentUser)) {
     showToast('Войдите в аккаунт Kerryrbq (Администратор) для управления модерацией!', 'error');
     openAuthModal('login');
@@ -1583,12 +1632,23 @@ async function handleModerateScript(status, targetScriptId = null) {
     note = reason.trim();
   }
 
-  // Visual loading state on the clicked button if in detail modal
-  const btn = document.getElementById(status === 'verified' ? 'modBtnVerify' : (status === 'pending' ? 'modBtnPending' : 'modBtnReject'));
-  const origHtml = btn ? btn.innerHTML : null;
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение...';
+  _isModerating = true;
+
+  const statusName = status === 'verified' ? '«Проверено на запуск»' : (status === 'rejected' ? '«Отклонено»' : '«Не проверено»');
+  const statusIcon = status === 'verified' ? 'fa-solid fa-circle-check' : (status === 'rejected' ? 'fa-solid fa-circle-xmark' : 'fa-solid fa-clock');
+
+  showActionLoading({
+    title: 'Применение статуса...',
+    subtitle: `Устанавливаем статус ${statusName} для скрипта...`,
+    icon: 'fa-solid fa-shield-halved fa-fade'
+  });
+
+  // Disable modal buttons and queue buttons
+  const modalBtns = document.querySelectorAll('.btn-mod');
+  modalBtns.forEach(b => { b.disabled = true; b.classList.add('is-busy'); });
+  const queueCard = document.querySelector(`.mod-queue-card[data-script-id="${scriptId}"]`);
+  if (queueCard) {
+    queueCard.querySelectorAll('button').forEach(b => { b.disabled = true; b.classList.add('is-busy'); });
   }
 
   try {
@@ -1599,16 +1659,18 @@ async function handleModerateScript(status, targetScriptId = null) {
 
     const updatedScript = (res && res.script) ? res.script : { id: scriptId, status };
 
-    // 1. Update memory cache & local storage
+    // 1. Update memory cache & local persistent storage
     if (!State.scriptsCache) State.scriptsCache = new Map();
-    State.scriptsCache.set(scriptId, updatedScript);
+    const existing = State.scriptsCache.get(scriptId) || {};
+    const merged = { ...existing, ...updatedScript, status };
+    State.scriptsCache.set(scriptId, merged);
     updateLocalPublishedScriptStatus(scriptId, status);
-    saveLocalPublishedScript(updatedScript);
+    saveLocalPublishedScript(merged);
 
-    // 2. Update Detail Modal
+    // 2. Update Detail Modal immediately
     if (State.activeModalScript && State.activeModalScript.id === scriptId) {
-      State.activeModalScript = updatedScript;
-      renderScriptDetailModal(updatedScript);
+      State.activeModalScript = merged;
+      renderScriptDetailModal(merged);
     }
 
     // 3. Update Moderation Queue DOM if verified or rejected
@@ -1638,7 +1700,7 @@ async function handleModerateScript(status, targetScriptId = null) {
       }
     }
 
-    // 4. Update Main feed card badge
+    // 4. Update Main feed card badges immediately
     document.querySelectorAll(`.script-card[data-id="${scriptId}"]`).forEach(card => {
       const badgeWrap = card.querySelector('.script-status-badge');
       if (badgeWrap) {
@@ -1646,15 +1708,21 @@ async function handleModerateScript(status, targetScriptId = null) {
       }
     });
 
+    updateActionLoading({
+      title: 'Статус успешно применен!',
+      subtitle: `Статус ${statusName} сохранен на сервере.`,
+      icon: statusIcon
+    });
+
+    await hideActionLoading(350);
+
     const label = status === 'verified' ? 'Проверено на запуск 🟢' : (status === 'rejected' ? 'Отклонено 🔴' : 'Не проверено 🟡');
     showToast(`Статус скрипта успешно сохранен: ${label}`, status === 'verified' ? 'success' : (status === 'rejected' ? 'error' : 'info'));
 
-    loadScriptsFeed();
-    loadModerationQueue();
+    // Light background sync without blocking or freezing UI
     updateModerationQueueCount();
-    loadNotifications();
-    updatePlatformStats();
   } catch (err) {
+    await hideActionLoading();
     console.error('Moderation error:', err);
     if (err.status === 401 || err.status === 403) {
       showToast('Ошибка прав: войдите в аккаунт Kerryrbq (Администратор)', 'error');
@@ -1663,15 +1731,19 @@ async function handleModerateScript(status, targetScriptId = null) {
       showToast(err.message || 'Ошибка сервера при сохранении модерации', 'error');
     }
   } finally {
-    if (btn && origHtml) {
-      btn.disabled = false;
-      btn.innerHTML = origHtml;
+    _isModerating = false;
+    modalBtns.forEach(b => { b.disabled = false; b.classList.remove('is-busy'); });
+    if (queueCard) {
+      queueCard.querySelectorAll('button').forEach(b => { b.disabled = false; b.classList.remove('is-busy'); });
     }
   }
 }
 
 // Delete script permanently (Kerryrbq / Admin or Author)
+let _isDeletingScript = false;
 async function handleDeleteScript(scriptId = null) {
+  if (_isDeletingScript) return;
+
   const targetId = scriptId || (State.activeModalScript && State.activeModalScript.id);
   if (!targetId) return;
 
@@ -1688,65 +1760,94 @@ async function handleDeleteScript(scriptId = null) {
     return;
   }
 
-  // 1. INSTANT LOCAL REMOVAL: Mark deleted & remove from caches immediately
-  markScriptDeletedLocally(targetId);
-  removeLocalPublishedScript(targetId);
-  if (State.scriptsCache) {
-    State.scriptsCache.delete(targetId);
-  }
+  _isDeletingScript = true;
 
-  // 2. INSTANT DOM REMOVAL: Remove immediately across all containers with animation
-  document.querySelectorAll(`[data-id="${targetId}"], [data-script-id="${targetId}"]`).forEach(el => {
-    el.style.transition = 'all 0.2s ease';
-    el.style.opacity = '0';
-    el.style.transform = 'scale(0.92)';
-    setTimeout(() => el.remove(), 200);
+  showActionLoading({
+    title: 'Удаление скрипта...',
+    subtitle: 'Удаляем скрипт с сервера и очищаем данные...',
+    icon: 'fa-solid fa-trash-can fa-fade'
   });
 
-  // 3. Immediately close detail modal if open for this script
-  if (State.activeModalScript && State.activeModalScript.id === targetId) {
-    document.getElementById('scriptDetailModal').classList.add('hidden');
-    State.activeModalScript = null;
-  }
+  const allDelButtons = document.querySelectorAll(`button[data-id="${targetId}"], .btn-mod-delete, #detailAuthorDeleteBtn, .mod-card-btn-delete`);
+  allDelButtons.forEach(b => { b.disabled = true; b.classList.add('is-busy'); });
 
-  // 4. Update queue counts immediately
-  const qCards = document.querySelectorAll('#modQueueList .mod-queue-card');
-  const remainingQueue = Math.max(0, qCards.length - 1);
-  const qBadge = document.getElementById('modQueueBadge');
-  const qHeader = document.getElementById('modQueueModalCount');
-  if (qBadge) {
-    qBadge.textContent = remainingQueue;
-    if (remainingQueue === 0) qBadge.classList.add('hidden');
-  }
-  if (qHeader) {
-    qHeader.textContent = `${remainingQueue} скриптов ожидают проверки`;
-  }
-  if (remainingQueue === 0) {
-    const emptyState = document.getElementById('emptyModQueue');
-    if (emptyState) emptyState.classList.remove('hidden');
-  }
-
-  showToast('Скрипт успешно удален с платформы 🗑️', 'success');
-
-  // 5. Send server DELETE request
   try {
+    // 1. Wait for server confirmation first
     await api(`/api/scripts/${targetId}`, {
       method: 'DELETE'
     });
-  } catch (err) {
-    if (err.message && (err.message.includes('not found') || err.message.includes('не найден'))) {
-      // Already deleted on server
-    } else {
-      console.warn('Delete error from server:', err);
-    }
-  }
 
-  loadScriptsFeed();
-  if (isUserModerator(State.currentUser)) {
-    loadModerationQueue();
-    updateModerationQueueCount();
+    // 2. Mark deleted in persistent caches
+    markScriptDeletedLocally(targetId);
+    removeLocalPublishedScript(targetId);
+    if (State.scriptsCache) {
+      State.scriptsCache.delete(targetId);
+    }
+
+    // 3. Remove from DOM
+    document.querySelectorAll(`[data-id="${targetId}"], [data-script-id="${targetId}"]`).forEach(el => {
+      el.remove();
+    });
+
+    // Close detail modal if open for this script
+    if (State.activeModalScript && State.activeModalScript.id === targetId) {
+      document.getElementById('scriptDetailModal').classList.add('hidden');
+      State.activeModalScript = null;
+    }
+
+    // Update queue counts if in queue
+    const qCards = document.querySelectorAll('#modQueueList .mod-queue-card');
+    const remainingQueue = qCards.length;
+    const qBadge = document.getElementById('modQueueBadge');
+    const qHeader = document.getElementById('modQueueModalCount');
+    if (qBadge) {
+      qBadge.textContent = remainingQueue;
+      if (remainingQueue === 0) qBadge.classList.add('hidden');
+    }
+    if (qHeader) {
+      qHeader.textContent = `${remainingQueue} скриптов ожидают проверки`;
+    }
+    if (remainingQueue === 0) {
+      const emptyState = document.getElementById('emptyModQueue');
+      if (emptyState) emptyState.classList.remove('hidden');
+    }
+
+    updateActionLoading({
+      title: 'Скрипт успешно удален!',
+      subtitle: 'Данные удалены, каталог обновлен.',
+      icon: 'fa-solid fa-circle-check'
+    });
+
+    await hideActionLoading(350);
+    showToast('Скрипт успешно удален с платформы 🗑️', 'success');
+
+    // 4. Smoothly refresh feed
+    await loadScriptsFeed();
+    if (isUserModerator(State.currentUser)) {
+      updateModerationQueueCount();
+    }
+    updatePlatformStats();
+  } catch (err) {
+    await hideActionLoading();
+    if (err.message && (err.message.includes('not found') || err.message.includes('не найден') || err.message.includes('already removed'))) {
+      markScriptDeletedLocally(targetId);
+      removeLocalPublishedScript(targetId);
+      if (State.scriptsCache) State.scriptsCache.delete(targetId);
+      document.querySelectorAll(`[data-id="${targetId}"], [data-script-id="${targetId}"]`).forEach(el => el.remove());
+      if (State.activeModalScript && State.activeModalScript.id === targetId) {
+        document.getElementById('scriptDetailModal').classList.add('hidden');
+        State.activeModalScript = null;
+      }
+      showToast('Скрипт уже был удален', 'info');
+      await loadScriptsFeed();
+    } else {
+      console.error('Delete error:', err);
+      showToast(err.message || 'Ошибка сервера при удалении скрипта', 'error');
+    }
+  } finally {
+    _isDeletingScript = false;
+    allDelButtons.forEach(b => { b.disabled = false; b.classList.remove('is-busy'); });
   }
-  updatePlatformStats();
 }
 
 // ============================================================================
@@ -1846,6 +1947,12 @@ async function handleEditScriptSubmit(e) {
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение...';
 
+  showActionLoading({
+    title: 'Сохранение изменений...',
+    subtitle: 'Обновляем скрипт на сервере...',
+    icon: 'fa-solid fa-floppy-disk fa-fade'
+  });
+
   try {
     const payload = {
       title,
@@ -1866,6 +1973,14 @@ async function handleEditScriptSubmit(e) {
 
     closeEditScriptModal();
 
+    updateActionLoading({
+      title: 'Изменения сохранены!',
+      subtitle: 'Данные скрипта успешно обновлены.',
+      icon: 'fa-solid fa-circle-check'
+    });
+
+    await hideActionLoading(350);
+
     if (res.codeChanged) {
       showToast(res.message || 'Скрипт обновлен! Исходный код изменен, скрипт отправлен на повторную проверку ⏳', 'warning');
     } else {
@@ -1876,13 +1991,14 @@ async function handleEditScriptSubmit(e) {
     if (State.activeModalScript && State.activeModalScript.id === scriptId) {
       openScriptDetail(scriptId);
     }
-    loadScriptsFeed();
+    await loadScriptsFeed();
     updatePlatformStats();
     if (isUserModerator(State.currentUser)) {
       updateModerationQueueCount();
       loadModerationQueue();
     }
   } catch (err) {
+    await hideActionLoading();
     showToast(err.message || 'Ошибка при обновлении скрипта', 'error');
   } finally {
     submitBtn.disabled = false;
@@ -2547,6 +2663,12 @@ async function handleUploadSubmit(e) {
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение на сервер...';
 
+  showActionLoading({
+    title: 'Публикация скрипта...',
+    subtitle: 'Загружаем обложку и сохраняем скрипт на сервер...',
+    icon: 'fa-solid fa-rocket fa-fade'
+  });
+
   try {
     const payload = {
       title,
@@ -2590,12 +2712,21 @@ async function handleUploadSubmit(e) {
     State.scriptsCache.set(newScript.id, newScript);
     saveLocalPublishedScript(newScript);
 
+    updateActionLoading({
+      title: 'Скрипт успешно опубликован!',
+      subtitle: 'Добавляем в каталог...',
+      icon: 'fa-solid fa-circle-check'
+    });
+
+    await hideActionLoading(350);
+
     showToast('Скрипт успешно опубликован!', 'success');
     DebugConsole.log('info', '✅ Скрипт опубликован успешно:', data);
     closeUploadModal();
-    loadScriptsFeed();
+    await loadScriptsFeed();
     updatePlatformStats();
   } catch (err) {
+    await hideActionLoading();
     DebugConsole.log('error', `❌ Ошибка при публикации скрипта: ${err.message}`, err);
     showToast(err.message || 'Ошибка публикации', 'error');
   } finally {

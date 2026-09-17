@@ -1356,6 +1356,25 @@
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- Global Cyber Action Loading Modal -->
+  <div class="action-loading-overlay hidden" id="actionLoadingOverlay" aria-live="assertive" role="alert">
+    <div class="action-loading-card">
+      <div class="action-loading-glow"></div>
+      <div class="action-loading-spinner-box">
+        <div class="action-loading-ring"></div>
+        <div class="action-loading-ring-inner"></div>
+        <div class="action-loading-icon" id="actionLoadingIcon">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+        </div>
+      </div>
+      <h3 class="action-loading-title" id="actionLoadingTitle">Выполнение операции...</h3>
+      <p class="action-loading-subtitle" id="actionLoadingSubtitle">Пожалуйста, подождите, идёт синхронизация с сервером...</p>
+      <div class="action-loading-bar-wrap">
+        <div class="action-loading-bar"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Animated aurora backdrop -->
   <div class="aurora" aria-hidden="true"></div>
 
