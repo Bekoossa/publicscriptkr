@@ -704,14 +704,14 @@
           <!-- Screenshot / Image Upload (Saved directly to host disk ./uploads) -->
           <div class="form-group">
             <label class="form-label">
-              <i class="fa-solid fa-image"></i> Скриншот скрипта
+              <i class="fa-solid fa-image"></i> Скриншот / Обложка скрипта <span class="req">*</span>
             </label>
             <div class="image-dropzone" id="imageDropzone">
               <input type="file" id="imageFileInput" accept="image/*" class="file-hidden-input">
               <div class="dropzone-content" id="dropzonePrompt">
                 <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
-                <span class="dropzone-text">Перетащите скриншот сюда или <span class="link-span" id="browseImageBtn">выберите файл</span></span>
-                <span class="dropzone-sub">PNG, JPG, WebP (сохраняется в облачное хранилище)</span>
+                <span class="dropzone-text">Перетащите скриншот сюда или <span class="link-span" id="browseImageBtn">выберите файл</span> <span class="req" style="font-size:0.9rem;">*</span></span>
+                <span class="dropzone-sub">PNG, JPG, WebP (без картинки публикация невозможна)</span>
               </div>
               <div class="dropzone-preview hidden" id="dropzonePreviewWrap">
                 <img src="" alt="Предпросмотр скриншота" id="uploadedImagePreview" class="uploaded-img-tag">

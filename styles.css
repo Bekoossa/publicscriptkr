@@ -1552,6 +1552,17 @@ body {
   position: relative;
 }
 .image-dropzone:hover, .image-dropzone.dragover { border-color: var(--accent-cyan); background: rgba(6,182,212,0.03); }
+.image-dropzone.dropzone-error-shake {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.35) !important;
+  animation: dropzoneShake 0.4s ease-in-out;
+}
+@keyframes dropzoneShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
 
 .dropzone-content { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .dropzone-icon { font-size: 2rem; color: var(--accent-cyan); }

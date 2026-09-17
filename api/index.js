@@ -311,6 +311,9 @@ module.exports = async function handler(req, res) {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;
       if (!title || !code) return res.status(400).json({ error: 'Title and code required' });
+      if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.trim()) {
+        return res.status(400).json({ error: 'Скриншот или изображение скрипта обязательно для публикации' });
+      }
       const tagsList = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : [category || 'lua']);
       const newScript = {
         id: 'script-' + Date.now(),

@@ -651,9 +651,13 @@ app.post('/api/scripts', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Название и код скрипта обязательны' });
   }
 
+  if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.trim()) {
+    return res.status(400).json({ error: 'Скриншот или изображение скрипта обязательно для публикации' });
+  }
+
   let coverImage = '';
-  if (imageBase64 && imageBase64.startsWith('data:image')) {
-    coverImage = saveBase64Image(imageBase64, 'script_cover');
+  if (imageBase64.startsWith('data:image')) {
+    coverImage = saveBase64Image(imageBase64, 'script_cover') || imageBase64;
   }
 
   const tagsList = Array.isArray(tags)

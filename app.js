@@ -1933,6 +1933,18 @@ async function handleUploadSubmit(e) {
     return;
   }
 
+  // Mandatory Image Requirement
+  if (!State.uploadedImageDataUrl) {
+    showToast('Загрузка картинки обязательна! Прикрепите скриншот или выберите готовую тему.', 'warning');
+    const dropzone = document.getElementById('imageDropzone');
+    if (dropzone) {
+      dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      dropzone.classList.add('dropzone-error-shake');
+      setTimeout(() => dropzone.classList.remove('dropzone-error-shake'), 1200);
+    }
+    return;
+  }
+
   const submitBtn = document.getElementById('publishScriptSubmitBtn');
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение на сервер...';
