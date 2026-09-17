@@ -195,7 +195,7 @@ function authMiddleware(req, res, next) {
     req.user = null;
     return next();
   }
-  let user = db.users.find(u => u.id === userId);
+  let user = db.users.find(u => u.id === userId || (u.username || '').toLowerCase() === (userId || '').toLowerCase());
   if (!user && (userId === 'u-1789205573347' || userId === 'kerryrbq')) {
     user = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
   }
@@ -960,7 +960,13 @@ app.put('/api/scripts/:id', requireAuth, (req, res) => {
   }
 
   const isMod = isModerator(req.user);
-  const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+  const userUname = (req.user.username || '').trim().toLowerCase();
+  const scriptAuthor = (script.author || '').trim().toLowerCase();
+  const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+  const userId = req.user.id ? String(req.user.id).trim() : '';
+
+  const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
+                   (scriptAuthor && userUname && scriptAuthor === userUname);
   if (!isAuthor && !isMod) {
     return res.status(403).json({ error: 'У вас нет прав на редактирование этого скрипта' });
   }
@@ -1050,7 +1056,13 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
 
   const script = db.scripts[idx];
   const isMod = isModerator(req.user);
-  const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+  const userUname = (req.user.username || '').trim().toLowerCase();
+  const scriptAuthor = (script.author || '').trim().toLowerCase();
+  const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+  const userId = req.user.id ? String(req.user.id).trim() : '';
+
+  const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
+                   (scriptAuthor && userUname && scriptAuthor === userUname);
   if (!isAuthor && !isMod) {
     return res.status(403).json({ error: 'У вас нет прав на удаление этого скрипта' });
   }

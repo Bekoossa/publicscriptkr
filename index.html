@@ -414,9 +414,14 @@
           <div class="modal-tag-badge" id="detailLangBadge">LUA</div>
           <h2 class="modal-title" id="detailTitle">Название скрипта</h2>
         </div>
-        <button class="modal-close-btn" id="closeDetailModalBtn" aria-label="Закрыть">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
+        <div class="modal-header-actions" style="display:flex;align-items:center;gap:8px;">
+          <button class="header-edit-btn hidden" id="detailHeaderEditBtn" title="Редактировать мой скрипт">
+            <i class="fa-solid fa-pen-to-square"></i> <span>Редактировать</span>
+          </button>
+          <button class="modal-close-btn" id="closeDetailModalBtn" aria-label="Закрыть">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
       </div>
 
       <div class="modal-body">
@@ -550,6 +555,10 @@
                 <span class="code-lines-count" id="codeLinesCount">0 строк</span>
               </div>
               <div class="code-actions-right">
+                <button class="btn btn-secondary btn-sm hidden" id="detailCodeEditBtn" title="Редактировать этот скрипт">
+                  <i class="fa-solid fa-pen-to-square"></i>
+                  <span>Редактировать</span>
+                </button>
                 <button class="btn btn-secondary btn-sm" id="copyCodeBtn">
                   <i class="fa-regular fa-copy"></i>
                   <span id="copyBtnText">Скопировать код</span>

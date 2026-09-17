@@ -131,8 +131,14 @@ function isUserModerator(user) {
 function canUserManageScript(script, user = State.currentUser) {
   if (!script || !user) return false;
   if (isUserModerator(user)) return true;
-  if (script.authorId && String(script.authorId) === String(user.id)) return true;
-  if (script.author && user.username && script.author.toLowerCase() === user.username.toLowerCase()) return true;
+
+  const userUname = (user.username || '').trim().toLowerCase();
+  const scriptAuthor = (script.author || '').trim().toLowerCase();
+  const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+  const userId = user.id ? String(user.id).trim() : '';
+
+  if (scriptAuthorId && userId && scriptAuthorId === userId) return true;
+  if (scriptAuthor && userUname && scriptAuthor === userUname) return true;
   return false;
 }
 
@@ -1064,6 +1070,7 @@ async function loadScriptsFeed() {
       card.className = 'script-card';
       card.dataset.id = script.id;
 
+      const canManage = canUserManageScript(script, State.currentUser);
       const coverSrc = getCardCover(script);
       const avatarSrc = getAvatarSrc(script.authorAvatar);
       const statusBadgeHtml = renderCardStatusBadge(script.status);
@@ -1077,6 +1084,11 @@ async function loadScriptsFeed() {
           <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
           ${statusBadgeHtml}
           <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
+          ${canManage ? `
+            <button class="script-thumb-edit-btn" title="Редактировать мой скрипт" data-action="edit-script" data-id="${script.id}">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+          ` : ''}
           <button class="script-thumb-quick-copy" title="Быстро скопировать код" data-action="quick-copy" data-id="${script.id}">
             <i class="fa-regular fa-copy"></i>
           </button>
@@ -1115,6 +1127,11 @@ async function loadScriptsFeed() {
                 <i class="fa-regular fa-comment"></i> ${script.commentsCount || 0}
               </span>
             </div>
+            ${canManage ? `
+              <button class="card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
+                <i class="fa-solid fa-pen-to-square"></i> Редактировать
+              </button>
+            ` : ''}
             <span class="card-open-btn">Открыть <i class="fa-solid fa-arrow-right"></i></span>
           </div>
         </div>
@@ -1131,6 +1148,11 @@ async function loadScriptsFeed() {
         const btn = e.target.closest('button');
         if (btn) {
           const action = btn.dataset.action;
+          if (action === 'edit-script') {
+            e.stopPropagation();
+            openEditScriptModal(script);
+            return;
+          }
           if (action === 'quick-copy') {
             e.stopPropagation();
             copyCode(script, script.title);
@@ -1255,24 +1277,43 @@ function renderScriptDetailModal(script) {
   }
 
   // Author Actions Bar (Author or Kerryrbq)
+  const canManage = canUserManageScript(script, State.currentUser);
   const authorActionsBar = document.getElementById('detailAuthorActionsBar');
   if (authorActionsBar) {
-    if (canUserManageScript(script, State.currentUser)) {
+    if (canManage) {
       authorActionsBar.classList.remove('hidden');
       const editBtn = document.getElementById('detailEditBtn');
       if (editBtn) {
-        editBtn.onclick = () => {
-          openEditScriptModal(script);
-        };
+        editBtn.onclick = () => openEditScriptModal(script);
       }
       const deleteBtn = document.getElementById('detailAuthorDeleteBtn');
       if (deleteBtn) {
-        deleteBtn.onclick = () => {
-          handleDeleteScript(script.id);
-        };
+        deleteBtn.onclick = () => handleDeleteScript(script.id);
       }
     } else {
       authorActionsBar.classList.add('hidden');
+    }
+  }
+
+  // Detail Modal Header Edit Button
+  const headerEditBtn = document.getElementById('detailHeaderEditBtn');
+  if (headerEditBtn) {
+    if (canManage) {
+      headerEditBtn.classList.remove('hidden');
+      headerEditBtn.onclick = () => openEditScriptModal(script);
+    } else {
+      headerEditBtn.classList.add('hidden');
+    }
+  }
+
+  // Code Viewer Toolbar Edit Button
+  const codeEditBtn = document.getElementById('detailCodeEditBtn');
+  if (codeEditBtn) {
+    if (canManage) {
+      codeEditBtn.classList.remove('hidden');
+      codeEditBtn.onclick = () => openEditScriptModal(script);
+    } else {
+      codeEditBtn.classList.add('hidden');
     }
   }
 
@@ -3033,6 +3074,7 @@ function renderPublicAuthorScripts(scripts) {
     const card = document.createElement('div');
     card.className = 'script-card';
 
+    const canManage = canUserManageScript(script, State.currentUser);
     const coverSrc = getCardCover(script);
     const avatarSrc = getAvatarSrc(script.authorAvatar);
     const statusBadgeHtml = renderCardStatusBadge(script.status);
@@ -3043,6 +3085,11 @@ function renderPublicAuthorScripts(scripts) {
         <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
         ${statusBadgeHtml}
         <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
+        ${canManage ? `
+          <button class="script-thumb-edit-btn" title="Редактировать мой скрипт" data-action="edit-script" data-id="${script.id}">
+            <i class="fa-solid fa-pen-to-square"></i>
+          </button>
+        ` : ''}
         <button class="script-thumb-quick-copy" title="Быстро скопировать код" data-action="quick-copy" data-id="${script.id}">
           <i class="fa-regular fa-copy"></i>
         </button>
@@ -3081,6 +3128,11 @@ function renderPublicAuthorScripts(scripts) {
               <i class="fa-regular fa-comment"></i> ${script.commentsCount || 0}
             </span>
           </div>
+          ${canManage ? `
+            <button class="card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
+              <i class="fa-solid fa-pen-to-square"></i> Редактировать
+            </button>
+          ` : ''}
           <span class="card-open-btn">Проверить код <i class="fa-solid fa-arrow-right"></i></span>
         </div>
       </div>
@@ -3090,6 +3142,13 @@ function renderPublicAuthorScripts(scripts) {
       const btn = e.target.closest('button');
       if (btn) {
         const action = btn.dataset.action;
+        if (action === 'edit-script') {
+          e.stopPropagation();
+          const pubModal = document.getElementById('publicProfileModal');
+          if (pubModal) pubModal.classList.add('hidden');
+          openEditScriptModal(script);
+          return;
+        }
         if (action === 'quick-copy') {
           e.stopPropagation();
           copyCode(script, script.title);

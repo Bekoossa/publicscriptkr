@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
     if (token) {
       const verifiedUserId = verifyToken(token) || (db.tokens ? db.tokens[token] : null);
       if (verifiedUserId) {
-        let user = db.users.find(u => u.id === verifiedUserId);
+        let user = db.users.find(u => u.id === verifiedUserId || (u.username || '').toLowerCase() === (verifiedUserId || '').toLowerCase());
         if (!user && (verifiedUserId === 'u-1789205573347' || verifiedUserId === 'kerryrbq')) {
           user = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
         }
@@ -382,7 +382,13 @@ module.exports = async function handler(req, res) {
       if (!script) return res.status(404).json({ error: 'Script not found' });
 
       const isMod = isModerator(req.user);
-      const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+      const userUname = (req.user.username || '').trim().toLowerCase();
+      const scriptAuthor = (script.author || '').trim().toLowerCase();
+      const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+      const userId = req.user.id ? String(req.user.id).trim() : '';
+
+      const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
+                       (scriptAuthor && userUname && scriptAuthor === userUname);
       if (!isAuthor && !isMod) {
         return res.status(403).json({ error: 'No permission' });
       }
@@ -460,7 +466,13 @@ module.exports = async function handler(req, res) {
       }
       const script = db.scripts[idx];
       const isMod = isModerator(req.user);
-      const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();
+      const userUname = (req.user.username || '').trim().toLowerCase();
+      const scriptAuthor = (script.author || '').trim().toLowerCase();
+      const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+      const userId = req.user.id ? String(req.user.id).trim() : '';
+
+      const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
+                       (scriptAuthor && userUname && scriptAuthor === userUname);
       if (!isAuthor && !isMod) {
         return res.status(403).json({ error: 'No permission' });
       }
