@@ -455,7 +455,9 @@ module.exports = async function handler(req, res) {
     if (scriptDelMatch && method === 'DELETE') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const idx = db.scripts.findIndex(s => s.id === scriptDelMatch[1]);
-      if (idx === -1) return res.status(404).json({ error: 'Script not found' });
+      if (idx === -1) {
+        return res.json({ message: 'Script already removed or not found', alreadyDeleted: true });
+      }
       const script = db.scripts[idx];
       const isMod = isModerator(req.user);
       const isAuthor = script.authorId === req.user.id || (script.author || '').toLowerCase() === (req.user.username || '').toLowerCase();

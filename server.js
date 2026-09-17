@@ -1045,7 +1045,7 @@ app.put('/api/scripts/:id', requireAuth, (req, res) => {
 app.delete('/api/scripts/:id', requireAuth, (req, res) => {
   const idx = db.scripts.findIndex(s => s.id === req.params.id);
   if (idx === -1) {
-    return res.status(404).json({ error: 'Скрипт не найден' });
+    return res.json({ message: 'Скрипт уже удален с сервера', alreadyDeleted: true });
   }
 
   const script = db.scripts[idx];

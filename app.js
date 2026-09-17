@@ -1185,6 +1185,15 @@ function getLocalPublishedScripts() {
   }
 }
 
+function removeLocalPublishedScript(scriptId) {
+  if (!scriptId) return;
+  try {
+    const list = JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
+    const filtered = list.filter(s => s.id !== scriptId);
+    localStorage.setItem('pskr_local_scripts', JSON.stringify(filtered));
+  } catch(e) {}
+}
+
 function renderScriptDetailModal(script) {
   if (!script) return;
   State.activeModalScript = script;
@@ -1490,26 +1499,40 @@ async function handleDeleteScript(scriptId = null) {
   }
 
   try {
-    await api(`/api/scripts/${targetId}`, {
+    const res = await api(`/api/scripts/${targetId}`, {
       method: 'DELETE'
     });
 
-    showToast('Скрипт успешно удален с платформы 🗑️', 'success');
-
-    // If modal open for this script, close it
-    if (State.activeModalScript && State.activeModalScript.id === targetId) {
-      closeDetailModal();
+    if (res && res.alreadyDeleted) {
+      showToast('Скрипт уже был удален с сервера и удален из списка', 'info');
+    } else {
+      showToast('Скрипт успешно удален с платформы 🗑️', 'success');
     }
-
-    loadScriptsFeed();
-    if (isUserModerator(State.currentUser)) {
-      loadModerationQueue();
-      updateModerationQueueCount();
-    }
-    updatePlatformStats();
   } catch (err) {
-    showToast(err.message || 'Ошибка при удалении скрипта', 'error');
+    if (err.message && (err.message.includes('not found') || err.message.includes('не найден'))) {
+      showToast('Скрипт уже удален с сервера и очищен из кеша', 'info');
+    } else {
+      showToast(err.message || 'Ошибка при удалении скрипта', 'error');
+    }
   }
+
+  // Always remove from local cache and storage so it never reappears
+  removeLocalPublishedScript(targetId);
+  if (State.scriptsCache) {
+    State.scriptsCache.delete(targetId);
+  }
+
+  // If modal open for this script, close it
+  if (State.activeModalScript && State.activeModalScript.id === targetId) {
+    closeDetailModal();
+  }
+
+  loadScriptsFeed();
+  if (isUserModerator(State.currentUser)) {
+    loadModerationQueue();
+    updateModerationQueueCount();
+  }
+  updatePlatformStats();
 }
 
 // ============================================================================
