@@ -541,10 +541,22 @@ async function api(url, options = {}, isRetry = false) {
 
   const startTime = Date.now();
   const method = options.method || 'GET';
-  DebugConsole.log('api', `🚀 [${method}] ${url}`, { headers, body: options.body });
+  
+  let fetchUrl = url;
+  if (method === 'GET') {
+    const sep = fetchUrl.includes('?') ? '&' : '?';
+    fetchUrl = `${fetchUrl}${sep}_t=${Date.now()}`;
+  }
+
+  DebugConsole.log('api', `🚀 [${method}] ${fetchUrl}`, { headers, body: options.body });
 
   try {
-    const res = await fetch(url, { ...options, headers, credentials: 'include' });
+    const res = await fetch(fetchUrl, {
+      ...options,
+      headers,
+      credentials: 'include',
+      cache: 'no-store'
+    });
     const duration = Date.now() - startTime;
     let data;
     try {
@@ -1037,13 +1049,13 @@ async function loadScriptsFeed() {
     params.set('sort', State.sortBy);
 
     const data = await api(`/api/scripts?${params.toString()}`);
-    let scripts = data.scripts || [];
+    let scripts = (data.scripts || []).filter(s => !isScriptDeletedLocally(s.id));
 
     // Merge with local published scripts to prevent loss across serverless container restarts
     const localScripts = getLocalPublishedScripts();
     const existingIds = new Set(scripts.map(s => s.id));
     localScripts.forEach(ls => {
-      if (!existingIds.has(ls.id)) {
+      if (!existingIds.has(ls.id) && !isScriptDeletedLocally(ls.id)) {
         scripts.unshift(ls);
         existingIds.add(ls.id);
       }
@@ -1189,6 +1201,38 @@ function formatRelativeTime(ts) {
 // SCRIPT DETAIL MODAL & MODERATION
 // ============================================================================
 
+function markScriptDeletedLocally(scriptId) {
+  if (!scriptId) return;
+  try {
+    const list = JSON.parse(sessionStorage.getItem('pskr_deleted_scripts') || '[]');
+    if (!list.includes(scriptId)) list.push(scriptId);
+    sessionStorage.setItem('pskr_deleted_scripts', JSON.stringify(list));
+  } catch(e) {}
+}
+
+function isScriptDeletedLocally(scriptId) {
+  if (!scriptId) return false;
+  try {
+    const list = JSON.parse(sessionStorage.getItem('pskr_deleted_scripts') || '[]');
+    return list.includes(scriptId);
+  } catch(e) {
+    return false;
+  }
+}
+
+function updateLocalPublishedScriptStatus(scriptId, status) {
+  if (!scriptId) return;
+  try {
+    const list = JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
+    list.forEach(s => {
+      if (s.id === scriptId) {
+        s.status = status;
+      }
+    });
+    localStorage.setItem('pskr_local_scripts', JSON.stringify(list));
+  } catch(e) {}
+}
+
 function saveLocalPublishedScript(script) {
   if (!script || !script.id) return;
   try {
@@ -1201,7 +1245,8 @@ function saveLocalPublishedScript(script) {
 
 function getLocalPublishedScripts() {
   try {
-    return JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
+    const raw = JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
+    return raw.filter(s => !isScriptDeletedLocally(s.id));
   } catch(e) {
     return [];
   }
@@ -1209,6 +1254,7 @@ function getLocalPublishedScripts() {
 
 function removeLocalPublishedScript(scriptId) {
   if (!scriptId) return;
+  markScriptDeletedLocally(scriptId);
   try {
     const list = JSON.parse(localStorage.getItem('pskr_local_scripts') || '[]');
     const filtered = list.filter(s => s.id !== scriptId);
@@ -1412,6 +1458,10 @@ function renderScriptDetailModal(script) {
 }
 
 async function openScriptDetail(scriptId, fallbackScript = null) {
+  if (!scriptId || isScriptDeletedLocally(scriptId)) {
+    showToast('Скрипт был удален', 'info');
+    return;
+  }
   // 1. Check fallback passed in, then memory cache, then localStorage
   let script = fallbackScript;
   if (!script && State.scriptsCache) {
@@ -1498,18 +1548,85 @@ async function handleModerateScript(status, targetScriptId = null) {
     note = reason.trim();
   }
 
+  // 1. INSTANT OPTIMISTIC UPDATE: Update memory cache & localStorage immediately
+  if (State.scriptsCache && State.scriptsCache.has(scriptId)) {
+    const s = State.scriptsCache.get(scriptId);
+    s.status = status;
+  }
+  updateLocalPublishedScriptStatus(scriptId, status);
+
+  // 2. INSTANT UI UPDATE: Script Detail Modal (if open for this script)
+  if (State.activeModalScript && State.activeModalScript.id === scriptId) {
+    State.activeModalScript.status = status;
+    const statusPill = document.getElementById('detailStatusPill');
+    if (statusPill) {
+      if (status === 'verified') {
+        statusPill.className = 'detail-status-pill verified';
+        statusPill.innerHTML = '<i class="fa-solid fa-circle-check"></i> <span>Проверено на запуск</span>';
+      } else if (status === 'rejected') {
+        statusPill.className = 'detail-status-pill rejected';
+        statusPill.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> <span>Отклонено</span>';
+      } else {
+        statusPill.className = 'detail-status-pill pending';
+        statusPill.innerHTML = '<i class="fa-solid fa-clock"></i> <span>Не проверено на запуск</span>';
+      }
+    }
+    const modStatusEl = document.getElementById('modCurrentStatus');
+    if (modStatusEl) {
+      const statusMap = {
+        verified: '🟢 Проверено на запуск',
+        pending: '🟡 Не проверено на запуск',
+        rejected: '🔴 Отклонено'
+      };
+      modStatusEl.textContent = `Статус: ${statusMap[status] || status}`;
+    }
+  }
+
+  // 3. INSTANT UI UPDATE: Moderation Queue Card
+  const qCard = document.querySelector(`.mod-queue-card[data-script-id="${scriptId}"]`);
+  if (qCard) {
+    qCard.style.transition = 'all 0.25s ease';
+    qCard.style.opacity = '0';
+    qCard.style.transform = 'scale(0.95)';
+    setTimeout(() => {
+      qCard.remove();
+      const remainingCards = document.querySelectorAll('#modQueueList .mod-queue-card').length;
+      const qBadge = document.getElementById('modQueueBadge');
+      const qHeader = document.getElementById('modQueueModalCount');
+      if (qBadge) {
+        qBadge.textContent = remainingCards;
+        if (remainingCards === 0) qBadge.classList.add('hidden');
+      }
+      if (qHeader) {
+        qHeader.textContent = `${remainingCards} ${remainingCards === 1 ? 'скрипт ожидает' : 'скриптов ожидают'} проверки`;
+      }
+      if (remainingCards === 0) {
+        const emptyState = document.getElementById('emptyModQueue');
+        if (emptyState) emptyState.classList.remove('hidden');
+      }
+    }, 250);
+  }
+
+  // 4. INSTANT UI UPDATE: Main feed and author cards
+  document.querySelectorAll(`.script-card[data-id="${scriptId}"]`).forEach(card => {
+    const badgeWrap = card.querySelector('.script-status-badge');
+    if (badgeWrap) {
+      badgeWrap.outerHTML = renderCardStatusBadge(status);
+    }
+  });
+
+  const label = status === 'verified' ? 'Проверено на запуск 🟢' : (status === 'rejected' ? 'Отклонено 🔴' : 'Не проверено 🟡');
+  showToast(`Статус скрипта успешно изменен: ${label}`, status === 'verified' ? 'success' : (status === 'rejected' ? 'error' : 'info'));
+
+  // 5. SEND SERVER MUTATION
   try {
     const res = await api(`/api/scripts/${scriptId}/moderate`, {
       method: 'POST',
       body: JSON.stringify({ status, note })
     });
 
-    const label = status === 'verified' ? 'Проверено на запуск 🟢' : (status === 'rejected' ? 'Отклонено 🔴' : 'Не проверено 🟡');
-    showToast(`Статус скрипта успешно изменен: ${label}`, status === 'verified' ? 'success' : (status === 'rejected' ? 'error' : 'info'));
-
-    // Refresh modal details if it's currently opened for this script
-    if (State.activeModalScript && State.activeModalScript.id === scriptId) {
-      openScriptDetail(scriptId);
+    if (res && res.script && State.scriptsCache) {
+      State.scriptsCache.set(res.script.id, res.script);
     }
     loadScriptsFeed();
     loadModerationQueue();
@@ -1517,7 +1634,7 @@ async function handleModerateScript(status, targetScriptId = null) {
     loadNotifications();
     updatePlatformStats();
   } catch (err) {
-    showToast(err.message || 'Ошибка модерации', 'error');
+    showToast(err.message || 'Ошибка сервера при сохранении модерации', 'error');
   }
 }
 
@@ -1539,33 +1656,57 @@ async function handleDeleteScript(scriptId = null) {
     return;
   }
 
-  try {
-    const res = await api(`/api/scripts/${targetId}`, {
-      method: 'DELETE'
-    });
-
-    if (res && res.alreadyDeleted) {
-      showToast('Скрипт уже был удален с сервера и удален из списка', 'info');
-    } else {
-      showToast('Скрипт успешно удален с платформы 🗑️', 'success');
-    }
-  } catch (err) {
-    if (err.message && (err.message.includes('not found') || err.message.includes('не найден'))) {
-      showToast('Скрипт уже удален с сервера и очищен из кеша', 'info');
-    } else {
-      showToast(err.message || 'Ошибка при удалении скрипта', 'error');
-    }
-  }
-
-  // Always remove from local cache and storage so it never reappears
+  // 1. INSTANT LOCAL REMOVAL: Mark deleted & remove from caches immediately
+  markScriptDeletedLocally(targetId);
   removeLocalPublishedScript(targetId);
   if (State.scriptsCache) {
     State.scriptsCache.delete(targetId);
   }
 
-  // If modal open for this script, close it
+  // 2. INSTANT DOM REMOVAL: Remove immediately across all containers with animation
+  document.querySelectorAll(`[data-id="${targetId}"], [data-script-id="${targetId}"]`).forEach(el => {
+    el.style.transition = 'all 0.2s ease';
+    el.style.opacity = '0';
+    el.style.transform = 'scale(0.92)';
+    setTimeout(() => el.remove(), 200);
+  });
+
+  // 3. Immediately close detail modal if open for this script
   if (State.activeModalScript && State.activeModalScript.id === targetId) {
-    closeDetailModal();
+    document.getElementById('scriptDetailModal').classList.add('hidden');
+    State.activeModalScript = null;
+  }
+
+  // 4. Update queue counts immediately
+  const qCards = document.querySelectorAll('#modQueueList .mod-queue-card');
+  const remainingQueue = Math.max(0, qCards.length - 1);
+  const qBadge = document.getElementById('modQueueBadge');
+  const qHeader = document.getElementById('modQueueModalCount');
+  if (qBadge) {
+    qBadge.textContent = remainingQueue;
+    if (remainingQueue === 0) qBadge.classList.add('hidden');
+  }
+  if (qHeader) {
+    qHeader.textContent = `${remainingQueue} скриптов ожидают проверки`;
+  }
+  if (remainingQueue === 0) {
+    const emptyState = document.getElementById('emptyModQueue');
+    if (emptyState) emptyState.classList.remove('hidden');
+  }
+
+  showToast('Скрипт успешно удален с платформы 🗑️', 'success');
+
+  // 5. Send server DELETE request
+  try {
+    await api(`/api/scripts/${targetId}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    if (err.message && (err.message.includes('not found') || err.message.includes('не найден'))) {
+      // Already deleted on server
+    } else {
+      console.warn('Delete error from server:', err);
+    }
   }
 
   loadScriptsFeed();
