@@ -20,12 +20,14 @@
 
 
 <body>
-  <!-- Ambient background glow effects -->
-  <div class="cyber-grid-overlay"></div>
-  <div class="ambient-glow glow-1"></div>
-  <div class="ambient-glow glow-2"></div>
-  <div class="ambient-glow glow-3"></div>
-  <div class="ambient-glow glow-4"></div>
+  <!-- Living Animated Background (No Neon, Pure Minimalist Elegance) -->
+  <div class="living-bg-container" aria-hidden="true">
+    <canvas id="bgParticleCanvas" class="bg-particle-canvas"></canvas>
+    <div class="fluid-orb orb-1"></div>
+    <div class="fluid-orb orb-2"></div>
+    <div class="fluid-orb orb-3"></div>
+    <div class="fluid-orb orb-4"></div>
+  </div>
 
   <!-- Navigation Bar -->
   <header class="navbar">
@@ -1424,6 +1426,58 @@
         revealTargets.forEach(function (el) { io.observe(el); });
       } else {
         revealTargets.forEach(function (el) { el.classList.add('is-visible'); });
+      }
+      // Living background particle canvas
+      var canvas = document.getElementById('bgParticleCanvas');
+      if (canvas && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        var ctx = canvas.getContext('2d');
+        if (ctx) {
+          var particles = [];
+          var w = canvas.width = window.innerWidth;
+          var h = canvas.height = window.innerHeight;
+          
+          window.addEventListener('resize', function () {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+          }, { passive: true });
+
+          for (var i = 0; i < 45; i++) {
+            particles.push({
+              x: Math.random() * w,
+              y: Math.random() * h,
+              r: Math.random() * 1.6 + 0.6,
+              dx: (Math.random() - 0.5) * 0.3,
+              dy: (Math.random() - 0.5) * 0.3,
+              a: Math.random() * 0.3 + 0.1,
+              pulse: Math.random() * 0.02 + 0.005
+            });
+          }
+
+          function renderBg() {
+            ctx.clearRect(0, 0, w, h);
+            for (var j = 0; j < particles.length; j++) {
+              var p = particles[j];
+              p.x += p.dx;
+              p.y += p.dy;
+              if (p.x < -10) p.x = w + 10;
+              if (p.x > w + 10) p.x = -10;
+              if (p.y < -10) p.y = h + 10;
+              if (p.y > h + 10) p.y = -10;
+
+              p.a += Math.sin(Date.now() * p.pulse) * 0.003;
+              var alpha = Math.max(0.08, Math.min(0.45, p.a));
+
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(165, 180, 252, ' + alpha + ')';
+              ctx.shadowBlur = 6;
+              ctx.shadowColor = 'rgba(129, 140, 248, 0.35)';
+              ctx.fill();
+            }
+            requestAnimationFrame(renderBg);
+          }
+          renderBg();
+        }
       }
     })();
   </script>
