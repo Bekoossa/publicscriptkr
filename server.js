@@ -192,12 +192,14 @@ function authMiddleware(req, res, next) {
     const userId = verifyToken(token) || (db.tokens ? db.tokens[token] : null);
     if (userId) {
       let user = db.users.find(u => u.id === userId || (u.username || '').toLowerCase() === (userId || '').toLowerCase());
-      if (!user && (userId === 'u-1789205573347' || userId === 'kerryrbq')) {
-        user = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
+      const checkUname = (headerUsername || userId || '').toLowerCase();
+      const isKerry = checkUname === 'kerryrbq' || checkUname === 'kerryscript' || checkUname.startsWith('kerry') || userId === 'u-1789205573347' || userId === 'kerryrbq' || userId === 'kerryscript';
+
+      if (!user && isKerry) {
+        user = db.users.find(u => (u.username || '').toLowerCase().startsWith('kerry'));
       }
       if (!user) {
-        const isKerry = (userId === 'u-1789205573347' || (userId || '').toLowerCase() === 'kerryrbq' || (headerUsername || '').toLowerCase() === 'kerryrbq');
-        const uname = headerUsername || (isKerry ? 'Kerryrbq' : (userId.startsWith('u-') ? `User_${userId.slice(-4)}` : userId));
+        const uname = headerUsername || (isKerry ? 'KerryScript' : (userId.startsWith('u-') ? `User_${userId.slice(-4)}` : userId));
         user = {
           id: userId,
           username: uname,
@@ -210,6 +212,10 @@ function authMiddleware(req, res, next) {
         saveDB();
       }
       if (user) {
+        if (isKerry || isModerator(user)) {
+          user.badge = 'ADMIN';
+          user.isModerator = true;
+        }
         user.lastIp = clientIp;
         user.lastActiveAt = Date.now();
         db.lastActiveUserToken = token;
@@ -226,8 +232,9 @@ function authMiddleware(req, res, next) {
 
   if (!req.user && (headerUsername || headerUserId)) {
     let user = db.users.find(u => (headerUserId && u.id === headerUserId) || (headerUsername && (u.username || '').toLowerCase() === headerUsername.toLowerCase()));
+    const uLower = (headerUsername || '').toLowerCase();
+    const isKerry = uLower === 'kerryrbq' || uLower === 'kerryscript' || uLower.startsWith('kerry') || headerUserId === 'u-1789205573347';
     if (!user && headerUsername) {
-      const isKerry = headerUsername.toLowerCase() === 'kerryrbq';
       user = {
         id: headerUserId || `u-${Date.now()}`,
         username: headerUsername,
@@ -239,8 +246,14 @@ function authMiddleware(req, res, next) {
       db.users.push(user);
       saveDB();
     }
-    if (user && !(user.bans && user.bans.full)) {
-      req.user = user;
+    if (user) {
+      if (isKerry || isModerator(user)) {
+        user.badge = 'ADMIN';
+        user.isModerator = true;
+      }
+      if (!(user.bans && user.bans.full)) {
+        req.user = user;
+      }
     }
   }
   next();
@@ -256,7 +269,18 @@ function requireAuth(req, res, next) {
 function isModerator(user) {
   if (!user) return false;
   const uname = (user.username || '').toLowerCase().trim();
-  return user.badge === 'ADMIN' || user.badge === 'MODERATOR' || uname === 'kerryrbq' || user.id === 'u-1789205573347' || user.isModerator === true;
+  const uid = String(user.id || '').toLowerCase().trim();
+  return (
+    user.badge === 'ADMIN' ||
+    user.badge === 'MODERATOR' ||
+    uname === 'kerryrbq' ||
+    uname === 'kerryscript' ||
+    uname.startsWith('kerry') ||
+    uid === 'u-1789205573347' ||
+    uid === 'kerryrbq' ||
+    uid === 'kerryscript' ||
+    user.isModerator === true
+  );
 }
 
 function requireModerator(req, res, next) {

@@ -117,13 +117,17 @@ function getAvatarSrc(src) {
 
 function isUserModerator(user) {
   if (!user) return false;
-  const uname = (user.username || '').toLowerCase();
+  const uname = (user.username || '').toLowerCase().trim();
+  const uid = String(user.id || '').toLowerCase().trim();
   return (
     user.badge === 'ADMIN' ||
     user.badge === 'MODERATOR' ||
     uname === 'kerryrbq' ||
-    user.id === 'u-1789205573347' ||
-    user.id === 'kerryrbq' ||
+    uname === 'kerryscript' ||
+    uname.startsWith('kerry') ||
+    uid === 'u-1789205573347' ||
+    uid === 'kerryrbq' ||
+    uid === 'kerryscript' ||
     user.isModerator === true
   );
 }
@@ -3040,7 +3044,9 @@ async function openProfileModal() {
   const modal = document.getElementById('userProfileModal');
   document.getElementById('profileModalAvatar').src = State.currentUser.avatar || DEFAULT_AVATARS[0];
   document.getElementById('profileModalUsername').textContent = State.currentUser.username;
-  document.getElementById('profileModalBadge').innerHTML = `<i class="fa-solid fa-shield-halved"></i> ${State.currentUser.badge || 'MEMBER'}`;
+  const isMod = isUserModerator(State.currentUser);
+  if (isMod) State.currentUser.badge = 'ADMIN';
+  document.getElementById('profileModalBadge').innerHTML = `<i class="fa-solid fa-shield-halved"></i> ${isMod ? 'ADMIN' : (State.currentUser.badge || 'MEMBER')}`;
   document.getElementById('profileModalBio').textContent = State.currentUser.bio || 'Пользователь PublicScriptKR.';
   document.getElementById('editBioInput').value = State.currentUser.bio || '';
 
@@ -4095,6 +4101,19 @@ document.addEventListener('DOMContentLoaded', () => {
   updatePlatformStats();
 
   console.log('[PublicScriptKR] Client connected to host backend.');
+
+  // Live real-time moderation queue & notification polling for administrators
+  setInterval(() => {
+    if (State.currentUser && isUserModerator(State.currentUser)) {
+      updateModerationQueueCount();
+      loadNotifications();
+      // If moderation queue modal is open, silently refresh its list
+      const modModal = document.getElementById('moderationQueueModal');
+      if (modModal && !modModal.classList.contains('hidden')) {
+        loadModerationQueue();
+      }
+    }
+  }, 10000);
 
   // Scroll Reveal Observer
   const revealObserver = new IntersectionObserver((entries) => {

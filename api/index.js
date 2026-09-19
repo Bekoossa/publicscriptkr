@@ -48,12 +48,14 @@ module.exports = async function handler(req, res) {
       const verifiedUserId = verifyToken(token) || (db.tokens ? db.tokens[token] : null);
       if (verifiedUserId) {
         let user = db.users.find(u => u.id === verifiedUserId || (u.username || '').toLowerCase() === (verifiedUserId || '').toLowerCase());
-        if (!user && (verifiedUserId === 'u-1789205573347' || (verifiedUserId || '').toLowerCase() === 'kerryrbq')) {
-          user = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
+        const checkUname = (headerUsername || verifiedUserId || '').toLowerCase();
+        const isKerry = checkUname === 'kerryrbq' || checkUname === 'kerryscript' || checkUname.startsWith('kerry') || verifiedUserId === 'u-1789205573347' || verifiedUserId === 'kerryrbq' || verifiedUserId === 'kerryscript';
+
+        if (!user && isKerry) {
+          user = db.users.find(u => (u.username || '').toLowerCase().startsWith('kerry'));
         }
         if (!user) {
-          const isKerry = (verifiedUserId === 'u-1789205573347' || (verifiedUserId || '').toLowerCase() === 'kerryrbq' || (headerUsername || '').toLowerCase() === 'kerryrbq');
-          const uname = headerUsername || (isKerry ? 'Kerryrbq' : (verifiedUserId.startsWith('u-') ? `User_${verifiedUserId.slice(-4)}` : verifiedUserId));
+          const uname = headerUsername || (isKerry ? 'KerryScript' : (verifiedUserId.startsWith('u-') ? `User_${verifiedUserId.slice(-4)}` : verifiedUserId));
           user = {
             id: verifiedUserId,
             username: uname,
@@ -65,16 +67,23 @@ module.exports = async function handler(req, res) {
           db.users.push(user);
           await saveDB(kv);
         }
-        if (user && !(user.bans && user.bans.full)) {
-          req.user = user;
+        if (user) {
+          if (isKerry || isModerator(user)) {
+            user.badge = 'ADMIN';
+            user.isModerator = true;
+          }
+          if (!(user.bans && user.bans.full)) {
+            req.user = user;
+          }
         }
       }
     }
 
     if (!req.user && (headerUsername || headerUserId)) {
       let user = db.users.find(u => (headerUserId && u.id === headerUserId) || (headerUsername && (u.username || '').toLowerCase() === headerUsername.toLowerCase()));
+      const uLower = (headerUsername || '').toLowerCase();
+      const isKerry = uLower === 'kerryrbq' || uLower === 'kerryscript' || uLower.startsWith('kerry') || headerUserId === 'u-1789205573347';
       if (!user && headerUsername) {
-        const isKerry = headerUsername.toLowerCase() === 'kerryrbq';
         user = {
           id: headerUserId || `u-${Date.now()}`,
           username: headerUsername,
@@ -86,8 +95,14 @@ module.exports = async function handler(req, res) {
         db.users.push(user);
         await saveDB(kv);
       }
-      if (user && !(user.bans && user.bans.full)) {
-        req.user = user;
+      if (user) {
+        if (isKerry || isModerator(user)) {
+          user.badge = 'ADMIN';
+          user.isModerator = true;
+        }
+        if (!(user.bans && user.bans.full)) {
+          req.user = user;
+        }
       }
     }
 
@@ -520,16 +535,21 @@ module.exports = async function handler(req, res) {
       };
       db.scripts.unshift(newScript);
       if (!isModerator(req.user)) {
-        const kerry = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
-        if (kerry) {
-          if (!db.notifications) db.notifications = [];
+        const modUsers = (db.users || []).filter(u => isModerator(u) || (u.username || '').toLowerCase().startsWith('kerry') || u.badge === 'ADMIN');
+        if (!db.notifications) db.notifications = [];
+        modUsers.forEach(mod => {
           db.notifications.unshift({
-            id: 'n-' + Date.now(), userId: kerry.id, scriptId: newScript.id,
-            scriptTitle: newScript.title, title: 'New script pending ⏳',
-            message: `${req.user.username} submitted "${newScript.title}". Check it!`,
-            status: 'pending', isRead: false, createdAt: Date.now()
+            id: 'n-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+            userId: mod.id,
+            scriptId: newScript.id,
+            scriptTitle: newScript.title,
+            title: 'Новый скрипт на проверку ⏳',
+            message: `Пользователь ${req.user.username} отправил скрипт «${newScript.title}» на проверку.`,
+            status: 'pending',
+            isRead: false,
+            createdAt: Date.now()
           });
-        }
+        });
       }
       await saveDB(kv);
       return res.status(201).json({
@@ -619,12 +639,12 @@ module.exports = async function handler(req, res) {
         script.moderatedAt = null;
 
         if (!isMod) {
-          const kerry = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
-          if (kerry) {
-            if (!db.notifications) db.notifications = [];
+          const modUsers = (db.users || []).filter(u => isModerator(u) || (u.username || '').toLowerCase().startsWith('kerry') || u.badge === 'ADMIN');
+          if (!db.notifications) db.notifications = [];
+          modUsers.forEach(mod => {
             db.notifications.unshift({
-              id: 'n-' + Date.now(),
-              userId: kerry.id,
+              id: 'n-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+              userId: mod.id,
               scriptId: script.id,
               scriptTitle: script.title,
               title: 'Код скрипта изменен на проверку ⏳',
@@ -633,7 +653,7 @@ module.exports = async function handler(req, res) {
               isRead: false,
               createdAt: Date.now()
             });
-          }
+          });
         }
         message = 'Скрипт обновлен! Исходный код был изменен, поэтому скрипт отправлен на повторную проверку ⏳';
       } else {
