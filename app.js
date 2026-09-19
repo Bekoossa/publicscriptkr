@@ -214,6 +214,21 @@ const DebugConsole = {
     }
   },
 
+  formatLogDetails(details) {
+    if (!details) return '';
+    if (details instanceof Error) {
+      return details.stack || `${details.name}: ${details.message}`;
+    }
+    if (typeof details === 'object') {
+      try {
+        return JSON.stringify(details, Object.getOwnPropertyNames(details), 2);
+      } catch(e) {
+        try { return JSON.stringify(details, null, 2); } catch(e2) { return String(details); }
+      }
+    }
+    return String(details);
+  },
+
   renderLogEntry(entry) {
     const feed = document.getElementById('consoleLogsFeed');
     if (!feed) return;
@@ -224,7 +239,7 @@ const DebugConsole = {
     let tagClass = 'console-tag-' + entry.category;
     let detailsHtml = '';
     if (entry.details) {
-      const detailsStr = typeof entry.details === 'object' ? JSON.stringify(entry.details, null, 2) : String(entry.details);
+      const detailsStr = this.formatLogDetails(entry.details);
       detailsHtml = `<div class="console-log-details">${escapeHtml(detailsStr)}</div>`;
     }
 
@@ -251,7 +266,7 @@ const DebugConsole = {
       let tagClass = 'console-tag-' + entry.category;
       let detailsHtml = '';
       if (entry.details) {
-        const detailsStr = typeof entry.details === 'object' ? JSON.stringify(entry.details, null, 2) : String(entry.details);
+        const detailsStr = this.formatLogDetails(entry.details);
         detailsHtml = `<div class="console-log-details">${escapeHtml(detailsStr)}</div>`;
       }
       row.innerHTML = `
@@ -409,11 +424,23 @@ const DebugConsole = {
       this.log('error', `[Promise Rejection] ${e.reason ? (e.reason.message || e.reason) : 'Unknown reason'}`);
     });
 
+    const formatArg = (a) => {
+      if (a instanceof Error) return a.stack || `${a.name}: ${a.message}`;
+      if (typeof a === 'object' && a !== null) {
+        try {
+          return JSON.stringify(a, Object.getOwnPropertyNames(a));
+        } catch(e) {
+          try { return JSON.stringify(a); } catch(e2) { return String(a); }
+        }
+      }
+      return String(a);
+    };
+
     const origError = console.error;
     console.error = (...args) => {
       origError.apply(console, args);
       try {
-        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        const msg = args.map(formatArg).join(' ');
         this.log('error', `[console.error] ${msg}`);
       } catch(e) {}
     };
@@ -422,7 +449,7 @@ const DebugConsole = {
     console.warn = (...args) => {
       origWarn.apply(console, args);
       try {
-        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        const msg = args.map(formatArg).join(' ');
         this.log('warn', `[console.warn] ${msg}`);
       } catch(e) {}
     };
@@ -1091,6 +1118,124 @@ function renderCardStatusBadge(status) {
   }
 }
 
+function createScriptCardElement(script) {
+  const card = document.createElement('article');
+  card.className = 'script-card';
+  card.dataset.id = script.id;
+
+  const isAuthor = isScriptAuthor(script, State.currentUser);
+  const canManage = canUserManageScript(script, State.currentUser);
+  const coverSrc = getCardCover(script);
+  const avatarSrc = getAvatarSrc(script.authorAvatar);
+  const statusBadgeHtml = renderCardStatusBadge(script.status);
+
+  const tagsHtml = (script.tags || []).slice(0, 3).map(tag => 
+    `<span class="tag-pill">#${escapeHtml(tag)}</span>`
+  ).join('');
+
+  card.innerHTML = `
+    <div class="script-card-thumb-wrap">
+      <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
+      <div class="script-thumb-overlay"></div>
+      ${statusBadgeHtml}
+      <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
+      ${canManage ? `
+        <button class="script-thumb-edit-btn" title="Редактировать скрипт" data-action="edit-script" data-id="${script.id}">
+          <i class="fa-solid fa-pen-to-square"></i>
+        </button>
+      ` : ''}
+      <button class="script-thumb-quick-copy" title="Быстро скопировать код" data-action="quick-copy" data-id="${script.id}">
+        <i class="fa-regular fa-copy"></i>
+      </button>
+    </div>
+
+    <div class="script-card-body">
+      <div class="script-card-author-row">
+        <div class="card-author clickable-author" data-author-id="${script.authorId || ''}" title="Перейти в профиль ${escapeHtml(script.author)}">
+          <img src="${avatarSrc}" alt="${escapeHtml(script.author)}" class="card-author-avatar clickable-author-avatar" data-author-id="${script.authorId || ''}" onerror="this.onerror=null; this.src='${DEFAULT_AVATARS[0]}';">
+          <span class="card-author-name" data-author-id="${script.authorId || ''}">${escapeHtml(script.author)}</span>
+          ${(script.author || '').toLowerCase() === 'kerryrbq' ? '<span class="author-verified-tag" title="Администратор Kerryrbq"><i class="fa-solid fa-circle-check"></i></span>' : ''}
+        </div>
+        <span class="card-post-date"><i class="fa-regular fa-clock"></i> ${formatRelativeTime(script.createdAt)}</span>
+      </div>
+
+      <h3 class="script-card-title">${escapeHtml(script.title)}</h3>
+      <p class="script-card-desc">${escapeHtml(script.description)}</p>
+
+      <div class="script-card-tags">
+        ${tagsHtml}
+      </div>
+
+      <div class="script-card-footer">
+        <div class="card-metrics-row">
+          <div class="card-metric-pill card-rating-stat" title="Рейтинг: ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)} из 5">
+            <i class="fa-solid fa-star"></i>
+            <span>${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)}</span>
+            <span class="stat-count">(${script.ratingsCount || 0})</span>
+          </div>
+          <button class="card-metric-pill card-like-btn ${script.isLiked ? 'liked' : ''}" data-action="toggle-like" data-id="${script.id}" title="${script.isLiked ? 'Убрать лайк' : 'Поставить лайк'}">
+            <i class="${script.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart"></i>
+            <span>${script.likesCount || 0}</span>
+          </button>
+          <div class="card-metric-pill card-views-stat" title="Просмотры">
+            <i class="fa-regular fa-eye"></i>
+            <span>${script.views || 0}</span>
+          </div>
+          <div class="card-metric-pill card-comments-stat" title="Комментарии">
+            <i class="fa-regular fa-comment"></i>
+            <span>${script.commentsCount || 0}</span>
+          </div>
+        </div>
+
+        <div class="card-actions-row">
+          ${canManage ? `
+            <button class="card-action-btn card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
+              <i class="fa-solid fa-pen-to-square"></i>
+              <span>Редактировать</span>
+            </button>
+          ` : ''}
+          <button class="card-action-btn card-open-btn" data-action="open-detail" data-id="${script.id}" title="Открыть скрипт">
+            <span>Открыть</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  card.addEventListener('click', (e) => {
+    const authorHit = e.target.closest('.card-author, .clickable-author, .clickable-author-avatar');
+    if (authorHit && authorHit.dataset.authorId) {
+      e.stopPropagation();
+      openPublicProfile(authorHit.dataset.authorId);
+      return;
+    }
+
+    const btn = e.target.closest('button, .card-action-btn');
+    if (btn) {
+      const action = btn.dataset.action;
+      if (action === 'edit-script') {
+        e.stopPropagation();
+        openEditScriptModal(script);
+        return;
+      }
+      if (action === 'quick-copy') {
+        e.stopPropagation();
+        copyCode(script, script.title);
+        return;
+      }
+      if (action === 'toggle-like') {
+        e.stopPropagation();
+        handleLikeScript(script.id);
+        return;
+      }
+    }
+    openScriptDetail(script.id, script);
+  });
+
+  return card;
+}
+
 async function loadScriptsFeed() {
   const grid = document.getElementById('scriptsGrid');
   const counter = document.getElementById('resultsCounter') || document.getElementById('scriptsCounterText');
@@ -1160,124 +1305,26 @@ async function loadScriptsFeed() {
     grid.innerHTML = '';
 
     scripts.forEach(script => {
-      const card = document.createElement('article');
-      card.className = 'script-card';
-      card.dataset.id = script.id;
-
-      const isAuthor = isScriptAuthor(script, State.currentUser);
-      const coverSrc = getCardCover(script);
-      const avatarSrc = getAvatarSrc(script.authorAvatar);
-      const statusBadgeHtml = renderCardStatusBadge(script.status);
-
-      const tagsHtml = (script.tags || []).slice(0, 3).map(tag => 
-        `<span class="tag-pill">#${escapeHtml(tag)}</span>`
-      ).join('');
-
-      card.innerHTML = `
-        <div class="script-card-thumb-wrap">
-          <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
-          <div class="script-thumb-overlay"></div>
-          ${statusBadgeHtml}
-          <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
-          ${isAuthor ? `
-            <button class="script-thumb-edit-btn" title="Редактировать мой скрипт" data-action="edit-script" data-id="${script.id}">
-              <i class="fa-solid fa-pen-to-square"></i>
-            </button>
-          ` : ''}
-          <button class="script-thumb-quick-copy" title="Быстро скопировать код" data-action="quick-copy" data-id="${script.id}">
-            <i class="fa-regular fa-copy"></i>
-          </button>
-        </div>
-
-        <div class="script-card-body">
-          <div class="script-card-author-row">
-            <div class="card-author clickable-author" data-author-id="${script.authorId || ''}" title="Перейти в профиль ${escapeHtml(script.author)}">
-              <img src="${avatarSrc}" alt="${escapeHtml(script.author)}" class="card-author-avatar clickable-author-avatar" data-author-id="${script.authorId || ''}" onerror="this.onerror=null; this.src='${DEFAULT_AVATARS[0]}';">
-              <span class="card-author-name" data-author-id="${script.authorId || ''}">${escapeHtml(script.author)}</span>
-              ${(script.author || '').toLowerCase() === 'kerryrbq' ? '<span class="author-verified-tag" title="Администратор Kerryrbq"><i class="fa-solid fa-circle-check"></i></span>' : ''}
-            </div>
-            <span class="card-post-date"><i class="fa-regular fa-clock"></i> ${formatRelativeTime(script.createdAt)}</span>
-          </div>
-
-          <h3 class="script-card-title">${escapeHtml(script.title)}</h3>
-          <p class="script-card-desc">${escapeHtml(script.description)}</p>
-
-          <div class="script-card-tags">
-            ${tagsHtml}
-          </div>
-
-          <div class="script-card-footer">
-            <div class="card-metrics-row">
-              <div class="card-metric-pill card-rating-stat" title="Рейтинг: ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)} из 5">
-                <i class="fa-solid fa-star"></i>
-                <span>${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)}</span>
-                <span class="stat-count">(${script.ratingsCount || 0})</span>
-              </div>
-              <button class="card-metric-pill card-like-btn ${script.isLiked ? 'liked' : ''}" data-action="toggle-like" data-id="${script.id}" title="${script.isLiked ? 'Убрать лайк' : 'Поставить лайк'}">
-                <i class="${script.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart"></i>
-                <span>${script.likesCount || 0}</span>
-              </button>
-              <div class="card-metric-pill card-views-stat" title="Просмотры">
-                <i class="fa-regular fa-eye"></i>
-                <span>${script.views || 0}</span>
-              </div>
-              <div class="card-metric-pill card-comments-stat" title="Комментарии">
-                <i class="fa-regular fa-comment"></i>
-                <span>${script.commentsCount || 0}</span>
-              </div>
-            </div>
-
-            <div class="card-actions-row">
-              ${canManage ? `
-                <button class="card-action-btn card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
-                  <i class="fa-solid fa-pen-to-square"></i>
-                  <span>Редактировать</span>
-                </button>
-              ` : ''}
-              <button class="card-action-btn card-open-btn" data-action="open-detail" data-id="${script.id}" title="Открыть скрипт">
-                <span>Открыть</span>
-                <i class="fa-solid fa-arrow-right"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-
-      card.addEventListener('click', (e) => {
-        const authorHit = e.target.closest('.card-author, .clickable-author, .clickable-author-avatar');
-        if (authorHit && authorHit.dataset.authorId) {
-          e.stopPropagation();
-          openPublicProfile(authorHit.dataset.authorId);
-          return;
-        }
-
-        const btn = e.target.closest('button, .card-action-btn');
-        if (btn) {
-          const action = btn.dataset.action;
-          if (action === 'edit-script') {
-            e.stopPropagation();
-            openEditScriptModal(script);
-            return;
-          }
-          if (action === 'quick-copy') {
-            e.stopPropagation();
-            copyCode(script, script.title);
-            return;
-          }
-          if (action === 'toggle-like') {
-            e.stopPropagation();
-            handleLikeScript(script.id);
-            return;
-          }
-        }
-        openScriptDetail(script.id, script);
-      });
-
-      grid.appendChild(card);
+      grid.appendChild(createScriptCardElement(script));
     });
 
   } catch (err) {
     console.error('Error fetching scripts:', err);
+    try {
+      const localFallback = (getLocalPublishedScripts() || []).filter(s => !isScriptDeletedLocally(s.id));
+      if (localFallback && localFallback.length > 0) {
+        if (!State.scriptsCache) State.scriptsCache = new Map();
+        localFallback.forEach(s => State.scriptsCache.set(s.id, s));
+        grid.innerHTML = '';
+        emptyState.classList.add('hidden');
+        if (counter) counter.textContent = `Показано ${localFallback.length} скриптов (офлайн)`;
+        localFallback.forEach(script => {
+          grid.appendChild(createScriptCardElement(script));
+        });
+        showToast('Сервер временно недоступен, показаны сохраненные скрипты', 'warning');
+        return;
+      }
+    } catch(fallbackErr) {}
     showToast('Ошибка загрузки скриптов с сервера', 'error');
   }
 }
@@ -1424,11 +1471,12 @@ function renderScriptDetailModal(script) {
     modPanel.classList.add('hidden');
   }
 
-  // Author Actions Bar (Author only)
+  // Author / Management Actions Bar (Author or Moderator Kerryrbq)
   const isAuthor = isScriptAuthor(script, State.currentUser);
+  const canManage = canUserManageScript(script, State.currentUser);
   const authorActionsBar = document.getElementById('detailAuthorActionsBar');
   if (authorActionsBar) {
-    if (isAuthor) {
+    if (canManage) {
       authorActionsBar.classList.remove('hidden');
       const editBtn = document.getElementById('detailEditBtn');
       if (editBtn) {
@@ -1446,7 +1494,7 @@ function renderScriptDetailModal(script) {
   // Detail Modal Header Edit Button
   const headerEditBtn = document.getElementById('detailHeaderEditBtn');
   if (headerEditBtn) {
-    if (isAuthor) {
+    if (canManage) {
       headerEditBtn.classList.remove('hidden');
       headerEditBtn.onclick = () => openEditScriptModal(script);
     } else {
@@ -1457,7 +1505,7 @@ function renderScriptDetailModal(script) {
   // Code Viewer Toolbar Edit Button
   const codeEditBtn = document.getElementById('detailCodeEditBtn');
   if (codeEditBtn) {
-    if (isAuthor) {
+    if (canManage) {
       codeEditBtn.classList.remove('hidden');
       codeEditBtn.onclick = () => openEditScriptModal(script);
     } else {
