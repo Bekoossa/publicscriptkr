@@ -3061,9 +3061,31 @@ async function openProfileModal() {
 
   // Load user's uploaded scripts
   try {
-    const data = await api(`/api/scripts?authorId=${encodeURIComponent(State.currentUser.id)}&all=true`);
+    const data = await api(`/api/scripts?authorId=${encodeURIComponent(State.currentUser.id)}`);
     const all = data.scripts || [];
-    const myScripts = all;
+    
+    // Strict ownership filter: only scripts that belong to the current user
+    const curUserId = String(State.currentUser.id || '').trim();
+    const curUname = String(State.currentUser.username || '').toLowerCase().trim();
+
+    let myScripts = all.filter(s => {
+      const sAuthorId = String(s.authorId || '').trim();
+      const sAuthor = String(s.author || '').toLowerCase().trim();
+      return (curUserId && sAuthorId === curUserId) ||
+             (curUname && sAuthor === curUname);
+    });
+
+    // Merge with any local scripts published by this user
+    const localScripts = getLocalPublishedScripts();
+    const existingIds = new Set(myScripts.map(s => s.id));
+    localScripts.forEach(ls => {
+      const lsAuthorId = String(ls.authorId || '').trim();
+      const lsAuthor = String(ls.author || '').toLowerCase().trim();
+      if (((curUserId && lsAuthorId === curUserId) || (curUname && lsAuthor === curUname)) && !existingIds.has(ls.id) && !isScriptDeletedLocally(ls.id)) {
+        myScripts.unshift(ls);
+        existingIds.add(ls.id);
+      }
+    });
 
     const myLikes = myScripts.reduce((acc, s) => acc + (s.likesCount || 0), 0);
     const myViews = myScripts.reduce((acc, s) => acc + (s.views || 0), 0);

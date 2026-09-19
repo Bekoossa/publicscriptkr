@@ -574,8 +574,30 @@ app.get('/api/scripts', (req, res) => {
   const reqUserId = req.user ? String(req.user.id).trim() : null;
   const reqUsername = req.user ? String(req.user.username || '').toLowerCase().trim() : null;
 
-  // Unverified scripts ("не проверенные на запуск", status !== 'verified') are NEVER visible to other users ("другим").
-  if (status) {
+  // 1. Author profile scripts: ALWAYS filter strictly to that author's scripts!
+  if (authorId) {
+    const target = decodeURIComponent(String(authorId).trim());
+    const targetLower = target.toLowerCase();
+    const matchedUser = (db.users || []).find(u => 
+      String(u.id).trim() === target || 
+      (u.username || '').toLowerCase().trim() === targetLower
+    );
+    const targetId = matchedUser ? String(matchedUser.id).trim() : target;
+    const targetUname = matchedUser ? (matchedUser.username || '').toLowerCase().trim() : targetLower;
+
+    const isSelf = (reqUserId && (reqUserId === targetId || reqUserId === target)) ||
+                   (reqUsername && (reqUsername === targetUname || reqUsername === targetLower));
+
+    list = list.filter(s => {
+      const sAuthorId = s.authorId ? String(s.authorId).trim() : '';
+      const sAuthor = (s.author || '').toLowerCase().trim();
+      const matches = (targetId && sAuthorId === targetId) || (target && sAuthorId === target) ||
+                      (targetUname && sAuthor === targetUname) || (targetLower && sAuthor === targetLower);
+      if (!matches) return false;
+      if (isSelf || isMod) return true;
+      return s.status === 'verified';
+    });
+  } else if (status) {
     if (isMod) {
       list = list.filter(s => (s.status || 'pending') === status);
     } else if (status === 'verified') {
@@ -590,21 +612,6 @@ app.get('/api/scripts', (req, res) => {
     }
   } else if (all === 'true' && isMod) {
     // Moderator with all=true sees moderation queue
-  } else if (authorId) {
-    const isSelf = (reqUserId && reqUserId === String(authorId).trim()) ||
-                   (reqUsername && reqUsername === String(authorId).toLowerCase().trim());
-    if (isSelf || isMod) {
-      list = list.filter(s => 
-        String(s.authorId || '').trim() === String(authorId).trim() ||
-        (s.author || '').toLowerCase().trim() === String(authorId).toLowerCase().trim()
-      );
-    } else {
-      list = list.filter(s => 
-        (String(s.authorId || '').trim() === String(authorId).trim() ||
-         (s.author || '').toLowerCase().trim() === String(authorId).toLowerCase().trim()) &&
-        s.status === 'verified'
-      );
-    }
   } else {
     // Public feed:
     // Only scripts verified for running (status === 'verified') are shown to other users.
@@ -1304,7 +1311,9 @@ app.get('/api/users/:id', (req, res) => {
   const isSelf = req.user && req.user.id === user.id;
 
   const userScripts = db.scripts.filter(s => {
-    if (s.authorId !== user.id) return false;
+    const matchesAuthor = (s.authorId && s.authorId === user.id) ||
+                          (s.author && (s.author || '').toLowerCase() === (user.username || '').toLowerCase());
+    if (!matchesAuthor) return false;
     // Moderators and author can see pending/rejected; public sees verified
     if (isReqMod || isSelf) return true;
     return s.status === 'verified';
