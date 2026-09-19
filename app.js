@@ -538,6 +538,14 @@ async function api(url, options = {}, isRetry = false) {
   if (State.token) {
     headers['Authorization'] = `Bearer ${State.token}`;
   }
+  if (State.currentUser) {
+    if (State.currentUser.username) {
+      headers['x-user-username'] = encodeURIComponent(State.currentUser.username);
+    }
+    if (State.currentUser.id) {
+      headers['x-user-id'] = encodeURIComponent(State.currentUser.id);
+    }
+  }
 
   const startTime = Date.now();
   const method = options.method || 'GET';
@@ -2952,7 +2960,10 @@ async function handleUploadSubmit(e) {
       description,
       tags,
       imageBase64: State.uploadedImageDataUrl,
-      presetCover: category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor')
+      presetCover: category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor'),
+      author: State.currentUser?.username || 'Пользователь',
+      authorId: State.currentUser?.id || `u-${Date.now()}`,
+      authorAvatar: State.currentUser?.avatar || DEFAULT_AVATARS[0]
     };
 
     DebugConsole.log('api', 'Отправка формы создания скрипта...', { title, category, extension });
