@@ -1103,6 +1103,27 @@ async function loadScriptsFeed() {
       if (!existingIds.has(ls.id) && !isScriptDeletedLocally(ls.id)) {
         scripts.unshift(ls);
         existingIds.add(ls.id);
+
+        // Automatically sync missing local script to server so ALL other users see it!
+        if (State.currentUser && (ls.authorId === State.currentUser.id || (ls.author || '').toLowerCase() === (State.currentUser.username || '').toLowerCase() || isUserModerator(State.currentUser))) {
+          api('/api/scripts', {
+            method: 'POST',
+            body: JSON.stringify({
+              id: ls.id,
+              title: ls.title,
+              category: ls.category,
+              extension: ls.extension,
+              code: ls.code,
+              description: ls.description,
+              tags: ls.tags,
+              imageBase64: ls.coverImage || 'preset',
+              presetCover: ls.presetCover || 'cyber-hub'
+            }),
+            silentFail: true
+          }).then(() => {
+            DebugConsole.log('info', `✅ Local script "${ls.title}" (${ls.id}) synced to server for all visitors.`);
+          }).catch(() => {});
+        }
       }
     });
 

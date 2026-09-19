@@ -546,8 +546,9 @@ app.get('/api/scripts', (req, res) => {
   } else if (!all) {
     if (authorId) {
       list = list.filter(s => s.authorId === authorId);
-    } else if (!req.user || !isModerator(req.user)) {
-      list = list.filter(s => (s.status || 'pending') === 'verified');
+    } else {
+      // Show all published scripts to visitors (verified and pending), hide only rejected
+      list = list.filter(s => (s.status || 'pending') !== 'rejected');
     }
   }
 
