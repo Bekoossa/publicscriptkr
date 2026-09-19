@@ -1,6 +1,6 @@
 const { createHash, randomBytes } = require('crypto');
 const { kv } = require('@vercel/kv');
-const { DEFAULT_AVATARS, hashPassword, generateToken, verifyToken, getDB, saveDB, isModerator } = require('../lib/db');
+const { DEFAULT_AVATARS, hashPassword, generateToken, verifyToken, getInitialDB, getDB, saveDB, isModerator } = require('../lib/db');
 
 function parseCookies(req) {
   const list = {};
