@@ -631,9 +631,45 @@
       "bio": "Lua/Luau + python Dev | QA & BugHunt\n⌛ 9:00 — 22:00 (UTC+3)",
       "createdAt": 1789568244925,
       "lastIp": "2a0c:16c1:1:1500:225:b7ff:fe00:45"
+    },
+    {
+      "id": "u-1789829599873",
+      "username": "TestUser_9849",
+      "passwordHash": "eeabaaa00d2cf1c524ad1f7ca3f729bba1952bdcc9e8794f5debd57f035c0657",
+      "avatar": "https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=150&auto=format&fit=crop&q=80",
+      "badge": "MEMBER",
+      "bio": "Tester",
+      "createdAt": 1789829599874,
+      "lastIp": "127.0.0.1",
+      "lastActiveAt": 1789829599933
     }
   ],
   "scripts": [
+    {
+      "id": "script-test-upsert-1789829599887",
+      "title": "Custom Script Updated Title",
+      "authorId": "u-1789829599873",
+      "author": "TestUser_9849",
+      "authorAvatar": "https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=150&auto=format&fit=crop&q=80",
+      "category": "lua",
+      "extension": "lua",
+      "status": "pending",
+      "createdAt": 1789829599901,
+      "coverImage": "",
+      "presetCover": "cyber-hub",
+      "views": 2,
+      "viewedIps": {
+        "127.0.0.1": 1789829599914
+      },
+      "likes": [],
+      "tags": [],
+      "description": "Updated desc",
+      "code": "print(\"Updated code!\")",
+      "comments": [],
+      "updatedAt": 1789829599933,
+      "moderatedBy": null,
+      "moderatedAt": null
+    },
     {
       "id": "script-1789568382384",
       "title": "Keyless Rivals|ESP,AIM,SILENTAIM",
@@ -646,8 +682,10 @@
       "createdAt": 1789568382385,
       "coverImage": "/uploads/script_cover_1789568382383_3ca4fbf0.webp",
       "presetCover": "neon-executor",
-      "views": 1,
-      "viewedIps": {},
+      "views": 2,
+      "viewedIps": {
+        "127.0.0.1": 1789829599837
+      },
       "likes": [],
       "tags": [
         "rivals",
@@ -2000,9 +2038,21 @@
     "2337588e483a97175f331b493aafce1449874eaf304fc32ed928d2fa20ba3baa": "u-1789568110454",
     "186844b35fb4258614bf27d9a96cddbd84357cb9d302b56ba5a4a352df5ba25b": "u-1789568194681",
     "f79223acce4cf53988e408b67f06660708dcd5657ef07fa1aa974f5003c928eb": "u-1789568244925",
-    "u-1789205573347.1789643067474.a215dd3ec3a2ca1826d0846ea90e63ebfe045b5e361188e9ed83b2bd2cbdf1a2": "u-1789205573347"
+    "u-1789205573347.1789643067474.a215dd3ec3a2ca1826d0846ea90e63ebfe045b5e361188e9ed83b2bd2cbdf1a2": "u-1789205573347",
+    "u-1789829599873.1789829599874.27c4428cbe03e3f7cd3ac122ae3aff347b917f3dcee46f750f76c978c312e63f": "u-1789829599873"
   },
   "notifications": [
+    {
+      "id": "n-1789829599933",
+      "userId": "u-1789205573347",
+      "scriptId": "script-test-upsert-1789829599887",
+      "scriptTitle": "Custom Script Updated Title",
+      "title": "Код скрипта изменен на проверку ⏳",
+      "message": "Автор TestUser_9849 изменил код скрипта «Custom Script Updated Title». Требуется повторная проверка на запуск!",
+      "status": "pending",
+      "isRead": false,
+      "createdAt": 1789829599933
+    },
     {
       "id": "n-1789643067573",
       "userId": "u-1789394530597",
@@ -3126,5 +3176,5 @@
   ],
   "userReviews": [],
   "bannedIps": [],
-  "lastActiveUserToken": "u-1789205573347.1789643067511.cbdcab33cd64d4b8aaff56540f850688e28779d81af6640fa16b483a6a48758d"
+  "lastActiveUserToken": "u-1789829599873.1789829599874.27c4428cbe03e3f7cd3ac122ae3aff347b917f3dcee46f750f76c978c312e63f"
 }

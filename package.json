@@ -12,10 +12,11 @@
   "license": "ISC",
   "dependencies": {
     "@vercel/kv": "^3.0.0",
-    "express": "^5.2.1",
-    "cors": "^2.8.6"
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
   },
   "devDependencies": {
-    "javascript-obfuscator": "^5.7.0"
+    "javascript-obfuscator": "^5.7.0",
+    "vercel": "^59.23.2"
   }
 }

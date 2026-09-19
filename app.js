@@ -1132,6 +1132,7 @@ async function loadScriptsFeed() {
       card.innerHTML = `
         <div class="script-card-thumb-wrap">
           <img src="${coverSrc}" alt="${escapeHtml(script.title)}" class="script-card-thumb" loading="lazy" onerror="this.onerror=null; this.src=window.PRESET_COVERS['cyber-hub'];">
+          <div class="script-thumb-overlay"></div>
           ${statusBadgeHtml}
           <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
           ${canManage ? `
@@ -1149,8 +1150,9 @@ async function loadScriptsFeed() {
             <div class="card-author clickable-author" data-author-id="${script.authorId || ''}" title="Перейти в профиль ${escapeHtml(script.author)}">
               <img src="${avatarSrc}" alt="${escapeHtml(script.author)}" class="card-author-avatar clickable-author-avatar" data-author-id="${script.authorId || ''}" onerror="this.onerror=null; this.src='${DEFAULT_AVATARS[0]}';">
               <span class="card-author-name" data-author-id="${script.authorId || ''}">${escapeHtml(script.author)}</span>
+              ${(script.author || '').toLowerCase() === 'kerryrbq' ? '<span class="author-verified-tag" title="Администратор Kerryrbq"><i class="fa-solid fa-circle-check"></i></span>' : ''}
             </div>
-            <span class="card-post-date">${formatRelativeTime(script.createdAt)}</span>
+            <span class="card-post-date"><i class="fa-regular fa-clock"></i> ${formatRelativeTime(script.createdAt)}</span>
           </div>
 
           <h3 class="script-card-title">${escapeHtml(script.title)}</h3>
@@ -1161,28 +1163,38 @@ async function loadScriptsFeed() {
           </div>
 
           <div class="script-card-footer">
-            <div class="card-engagement-stats">
-              <span class="card-stat card-rating-stat" title="Рейтинг: ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)} из 5">
-                <i class="fa-solid fa-star"></i> ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)}
+            <div class="card-metrics-row">
+              <div class="card-metric-pill card-rating-stat" title="Рейтинг: ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)} из 5">
+                <i class="fa-solid fa-star"></i>
+                <span>${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)}</span>
                 <span class="stat-count">(${script.ratingsCount || 0})</span>
-              </span>
-              <button class="card-like-btn ${script.isLiked ? 'liked' : ''}" data-action="toggle-like" data-id="${script.id}" title="${script.isLiked ? 'Убрать лайк' : 'Поставить лайк'}">
+              </div>
+              <button class="card-metric-pill card-like-btn ${script.isLiked ? 'liked' : ''}" data-action="toggle-like" data-id="${script.id}" title="${script.isLiked ? 'Убрать лайк' : 'Поставить лайк'}">
                 <i class="${script.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart"></i>
                 <span>${script.likesCount || 0}</span>
               </button>
-              <span class="card-stat" title="Реальные просмотры">
-                <i class="fa-regular fa-eye"></i> ${script.views || 0}
-              </span>
-              <span class="card-stat" title="Комментарии">
-                <i class="fa-regular fa-comment"></i> ${script.commentsCount || 0}
-              </span>
+              <div class="card-metric-pill card-views-stat" title="Просмотры">
+                <i class="fa-regular fa-eye"></i>
+                <span>${script.views || 0}</span>
+              </div>
+              <div class="card-metric-pill card-comments-stat" title="Комментарии">
+                <i class="fa-regular fa-comment"></i>
+                <span>${script.commentsCount || 0}</span>
+              </div>
             </div>
-            ${canManage ? `
-              <button class="card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
-                <i class="fa-solid fa-pen-to-square"></i> Редактировать
+
+            <div class="card-actions-row">
+              ${canManage ? `
+                <button class="card-action-btn card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
+                  <i class="fa-solid fa-pen-to-square"></i>
+                  <span>Редактировать</span>
+                </button>
+              ` : ''}
+              <button class="card-action-btn card-open-btn" data-action="open-detail" data-id="${script.id}" title="Открыть скрипт">
+                <span>Открыть</span>
+                <i class="fa-solid fa-arrow-right"></i>
               </button>
-            ` : ''}
-            <span class="card-open-btn">Открыть <i class="fa-solid fa-arrow-right"></i></span>
+            </div>
           </div>
         </div>
       `;
@@ -1195,7 +1207,7 @@ async function loadScriptsFeed() {
           return;
         }
 
-        const btn = e.target.closest('button');
+        const btn = e.target.closest('button, .card-action-btn');
         if (btn) {
           const action = btn.dataset.action;
           if (action === 'edit-script') {
@@ -1595,20 +1607,38 @@ function switchDetailTab(tabName) {
   if (tabCommentsBtn) tabCommentsBtn.classList.remove('active');
   if (tabCoverBtn) tabCoverBtn.classList.remove('active');
 
-  if (secCode) secCode.classList.add('hidden');
-  if (secComments) secComments.classList.add('hidden');
-  if (secCover) secCover.classList.add('hidden');
+  if (secCode) {
+    secCode.classList.add('hidden');
+    secCode.classList.remove('active');
+  }
+  if (secComments) {
+    secComments.classList.add('hidden');
+    secComments.classList.remove('active');
+  }
+  if (secCover) {
+    secCover.classList.add('hidden');
+    secCover.classList.remove('active');
+  }
 
   if (tabName === 'comments') {
     if (tabCommentsBtn) tabCommentsBtn.classList.add('active');
-    if (secComments) secComments.classList.remove('hidden');
+    if (secComments) {
+      secComments.classList.remove('hidden');
+      secComments.classList.add('active');
+    }
   } else if (tabName === 'cover') {
     if (tabCoverBtn) tabCoverBtn.classList.add('active');
-    if (secCover) secCover.classList.remove('hidden');
+    if (secCover) {
+      secCover.classList.remove('hidden');
+      secCover.classList.add('active');
+    }
   } else {
     // Default to Code section
     if (tabCodeBtn) tabCodeBtn.classList.add('active');
-    if (secCode) secCode.classList.remove('hidden');
+    if (secCode) {
+      secCode.classList.remove('hidden');
+      secCode.classList.add('active');
+    }
   }
 }
 
@@ -1863,17 +1893,30 @@ async function openEditScriptModal(scriptOrId) {
 
   if (!targetId) return;
 
-  // Fetch single script detail to ensure complete code is loaded
+  // 1. Try local cache or localStorage first for instantaneous load
+  if (!script && State.scriptsCache && State.scriptsCache.has(targetId)) {
+    script = State.scriptsCache.get(targetId);
+  }
+  if (!script) {
+    const localList = getLocalPublishedScripts();
+    script = localList.find(s => String(s.id).trim() === String(targetId).trim());
+  }
+
+  // 2. Fetch single script detail to ensure complete fresh code is loaded
   try {
-    const res = await api(`/api/scripts/${targetId}`);
+    const res = await api(`/api/scripts/${encodeURIComponent(targetId)}`);
     if (res && res.script) {
       script = res.script;
+      if (!State.scriptsCache) State.scriptsCache = new Map();
+      State.scriptsCache.set(script.id, script);
+      saveLocalPublishedScript(script);
     }
   } catch (err) {
     if (!script) {
       showToast('Не удалось загрузить скрипт для редактирования', 'error');
       return;
     }
+    DebugConsole.log('info', `Using cached script data for edit: ${targetId}`);
   }
 
   if (!canUserManageScript(script, State.currentUser)) {
@@ -1966,10 +2009,43 @@ async function handleEditScriptSubmit(e) {
       payload.imageBase64 = _editUploadedImageBase64;
     }
 
-    const res = await api(`/api/scripts/${scriptId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload)
-    });
+    let res;
+    try {
+      res = await api(`/api/scripts/${encodeURIComponent(scriptId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+    } catch (apiErr) {
+      if (apiErr.status === 404) {
+        // Fallback: server was restarted or out of sync; upsert via POST with explicit id
+        DebugConsole.log('info', `PUT 404 for ${scriptId}, attempting auto-recreation on server...`);
+        res = await api('/api/scripts', {
+          method: 'POST',
+          body: JSON.stringify({ ...payload, id: scriptId })
+        });
+      } else {
+        throw apiErr;
+      }
+    }
+
+    // Always update local cache & localStorage so changes appear everywhere immediately
+    const tagsArr = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : []);
+    const updatedScriptObj = (res && res.script) ? res.script : {
+      id: scriptId,
+      title,
+      category,
+      extension,
+      code,
+      description,
+      tags: tagsArr,
+      coverImage: _editUploadedImageBase64 || '',
+      author: State.currentUser?.username || 'Kerryrbq',
+      authorId: State.currentUser?.id,
+      updatedAt: Date.now()
+    };
+    if (!State.scriptsCache) State.scriptsCache = new Map();
+    State.scriptsCache.set(scriptId, updatedScriptObj);
+    saveLocalPublishedScript(updatedScriptObj);
 
     closeEditScriptModal();
 
@@ -1981,7 +2057,7 @@ async function handleEditScriptSubmit(e) {
 
     await hideActionLoading(350);
 
-    if (res.codeChanged) {
+    if (res && res.codeChanged) {
       showToast(res.message || 'Скрипт обновлен! Исходный код изменен, скрипт отправлен на повторную проверку ⏳', 'warning');
     } else {
       showToast(res.message || 'Скрипт успешно обновлен! (Статус сохранен) ✅', 'success');
@@ -1989,7 +2065,7 @@ async function handleEditScriptSubmit(e) {
 
     // Refresh detail modal if open
     if (State.activeModalScript && State.activeModalScript.id === scriptId) {
-      openScriptDetail(scriptId);
+      openScriptDetail(scriptId, updatedScriptObj);
     }
     await loadScriptsFeed();
     updatePlatformStats();
@@ -3457,34 +3533,44 @@ function renderPublicAuthorScripts(scripts) {
         </div>
 
         <div class="script-card-footer">
-          <div class="card-engagement-stats">
-            <span class="card-stat card-rating-stat" title="Рейтинг: ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)} из 5">
-              <i class="fa-solid fa-star"></i> ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)}
+          <div class="card-metrics-row">
+            <div class="card-metric-pill card-rating-stat" title="Рейтинг: ${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)} из 5">
+              <i class="fa-solid fa-star"></i>
+              <span>${(typeof script.rating === 'number' ? script.rating : 5).toFixed(1)}</span>
               <span class="stat-count">(${script.ratingsCount || 0})</span>
-            </span>
-            <button class="card-like-btn ${script.isLiked ? 'liked' : ''}" data-action="toggle-like" data-id="${script.id}" title="${script.isLiked ? 'Убрать лайк' : 'Поставить лайк'}">
+            </div>
+            <button class="card-metric-pill card-like-btn ${script.isLiked ? 'liked' : ''}" data-action="toggle-like" data-id="${script.id}" title="${script.isLiked ? 'Убрать лайк' : 'Поставить лайк'}">
               <i class="${script.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart"></i>
               <span>${script.likesCount || 0}</span>
             </button>
-            <span class="card-stat" title="Реальные просмотры">
-              <i class="fa-regular fa-eye"></i> ${script.views || 0}
-            </span>
-            <span class="card-stat" title="Комментарии">
-              <i class="fa-regular fa-comment"></i> ${script.commentsCount || 0}
-            </span>
+            <div class="card-metric-pill card-views-stat" title="Просмотры">
+              <i class="fa-regular fa-eye"></i>
+              <span>${script.views || 0}</span>
+            </div>
+            <div class="card-metric-pill card-comments-stat" title="Комментарии">
+              <i class="fa-regular fa-comment"></i>
+              <span>${script.commentsCount || 0}</span>
+            </div>
           </div>
-          ${canManage ? `
-            <button class="card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
-              <i class="fa-solid fa-pen-to-square"></i> Редактировать
+
+          <div class="card-actions-row">
+            ${canManage ? `
+              <button class="card-action-btn card-author-edit-btn" data-action="edit-script" data-id="${script.id}" title="Редактировать скрипт">
+                <i class="fa-solid fa-pen-to-square"></i>
+                <span>Редактировать</span>
+              </button>
+            ` : ''}
+            <button class="card-action-btn card-open-btn" data-action="open-detail" data-id="${script.id}" title="Открыть скрипт">
+              <span>Открыть</span>
+              <i class="fa-solid fa-arrow-right"></i>
             </button>
-          ` : ''}
-          <span class="card-open-btn">Проверить код <i class="fa-solid fa-arrow-right"></i></span>
+          </div>
         </div>
       </div>
     `;
 
     card.addEventListener('click', (e) => {
-      const btn = e.target.closest('button');
+      const btn = e.target.closest('button, .card-action-btn');
       if (btn) {
         const action = btn.dataset.action;
         if (action === 'edit-script') {
@@ -3759,12 +3845,16 @@ window.openPublicProfile = openPublicProfile;
 window.handleDeleteAuthorReview = handleDeleteAuthorReview;
 
 // Bootstrapping
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
   DebugConsole.init();
   setupEventListeners();
-  await checkAuthSession();
-  await updatePlatformStats();
-  await loadScriptsFeed();
+
+  // Instant display of scripts feed without sequential blocking
+  loadScriptsFeed();
+
+  // Parallel session validation and stats
+  checkAuthSession();
+  updatePlatformStats();
 
   console.log('[PublicScriptKR] Client connected to host backend.');
 

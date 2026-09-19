@@ -621,9 +621,35 @@ app.get('/api/scripts', (req, res) => {
   res.json({ scripts: result });
 });
 
+function findScriptById(id) {
+  if (!id) return null;
+  const targetId = decodeURIComponent(String(id).trim());
+  let script = (db.scripts || []).find(s => String(s.id).trim() === targetId);
+  if (!script) {
+    loadDB();
+    script = (db.scripts || []).find(s => String(s.id).trim() === targetId);
+  }
+  if (!script) {
+    try {
+      const seedPath = path.join(__dirname, 'lib', 'seed.json');
+      if (fs.existsSync(seedPath)) {
+        const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+        const fromSeed = (seed.scripts || []).find(s => String(s.id).trim() === targetId);
+        if (fromSeed) {
+          if (!db.scripts) db.scripts = [];
+          db.scripts.unshift(fromSeed);
+          saveDB();
+          return fromSeed;
+        }
+      }
+    } catch (e) {}
+  }
+  return script;
+}
+
 // Get Single Script Detail (Increments Real Views on Disk)
 app.get('/api/scripts/:id', (req, res) => {
-  const script = db.scripts.find(s => s.id === req.params.id);
+  const script = findScriptById(req.params.id);
   if (!script) {
     return res.status(404).json({ error: 'Скрипт не найден' });
   }
@@ -946,21 +972,45 @@ app.get('/api/moderation/queue', requireAuth, requireModerator, (req, res) => {
 
 // Update / Edit Script (Author or Kerryrbq/Moderator)
 app.put('/api/scripts/:id', requireAuth, (req, res) => {
-  const script = db.scripts.find(s => s.id === req.params.id);
-  if (!script) {
-    return res.status(404).json({ error: 'Скрипт не найден' });
-  }
+  const targetId = decodeURIComponent(String(req.params.id || '').trim());
+  let script = findScriptById(targetId);
 
   const isMod = isModerator(req.user);
   const userUname = (req.user.username || '').trim().toLowerCase();
-  const scriptAuthor = (script.author || '').trim().toLowerCase();
-  const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
   const userId = req.user.id ? String(req.user.id).trim() : '';
 
-  const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
-                   (scriptAuthor && userUname && scriptAuthor === userUname);
-  if (!isAuthor && !isMod) {
-    return res.status(403).json({ error: 'У вас нет прав на редактирование этого скрипта' });
+  if (script) {
+    const scriptAuthor = (script.author || '').trim().toLowerCase();
+    const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+    const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
+                     (scriptAuthor && userUname && scriptAuthor === userUname);
+    if (!isAuthor && !isMod) {
+      return res.status(403).json({ error: 'У вас нет прав на редактирование этого скрипта' });
+    }
+  } else {
+    // If not found in memory or disk, upsert/create it so the user never loses their script!
+    script = {
+      id: targetId,
+      title: (req.body.title || 'Новый скрипт').trim(),
+      authorId: req.user.id,
+      author: req.user.username,
+      authorAvatar: req.user.avatar,
+      category: req.body.category || 'lua',
+      extension: req.body.extension || 'lua',
+      status: isMod ? 'verified' : 'pending',
+      createdAt: Date.now(),
+      coverImage: '',
+      presetCover: req.body.presetCover || 'cyber-hub',
+      views: 1,
+      viewedIps: {},
+      likes: [],
+      tags: [],
+      description: req.body.description ? req.body.description.trim() : 'Описание отсутствует.',
+      code: (req.body.code || '').trim(),
+      comments: []
+    };
+    if (!db.scripts) db.scripts = [];
+    db.scripts.unshift(script);
   }
 
   const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;

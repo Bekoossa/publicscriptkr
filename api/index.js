@@ -286,8 +286,19 @@ module.exports = async function handler(req, res) {
     // GET /api/scripts/:id
     const scriptGetMatch = path.match(/^\/api\/scripts\/([^/]+)$/);
     if (scriptGetMatch && method === 'GET') {
-      const script = db.scripts.find(s => s.id === scriptGetMatch[1]);
-      if (!script) return res.status(404).json({ error: 'Script not found' });
+      const targetId = decodeURIComponent(String(scriptGetMatch[1] || '').trim());
+      let script = db.scripts.find(s => String(s.id).trim() === targetId);
+      if (!script) {
+        // Fallback to seedData
+        const initial = getInitialDB();
+        const seedScript = (initial.scripts || []).find(s => String(s.id).trim() === targetId);
+        if (seedScript) {
+          script = seedScript;
+          db.scripts.unshift(script);
+          await saveDB(kv);
+        }
+      }
+      if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
       if (!script.viewedIps) script.viewedIps = {};
       const ip = clientIp;
       const last = script.viewedIps[ip] || 0;
@@ -364,19 +375,53 @@ module.exports = async function handler(req, res) {
     const scriptPutMatch = path.match(/^\/api\/scripts\/([^/]+)$/);
     if (scriptPutMatch && method === 'PUT') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-      const script = db.scripts.find(s => s.id === scriptPutMatch[1]);
-      if (!script) return res.status(404).json({ error: 'Script not found' });
+      const targetId = decodeURIComponent(String(scriptPutMatch[1] || '').trim());
+      let script = db.scripts.find(s => String(s.id).trim() === targetId);
+      if (!script) {
+        // Check seed
+        const initial = getInitialDB();
+        const seedScript = (initial.scripts || []).find(s => String(s.id).trim() === targetId);
+        if (seedScript) {
+          script = JSON.parse(JSON.stringify(seedScript));
+          db.scripts.unshift(script);
+        }
+      }
 
       const isMod = isModerator(req.user);
       const userUname = (req.user.username || '').trim().toLowerCase();
-      const scriptAuthor = (script.author || '').trim().toLowerCase();
-      const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
       const userId = req.user.id ? String(req.user.id).trim() : '';
 
-      const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
-                       (scriptAuthor && userUname && scriptAuthor === userUname);
-      if (!isAuthor && !isMod) {
-        return res.status(403).json({ error: 'No permission' });
+      if (script) {
+        const scriptAuthor = (script.author || '').trim().toLowerCase();
+        const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
+        const isAuthor = (scriptAuthorId && userId && scriptAuthorId === userId) ||
+                         (scriptAuthor && userUname && scriptAuthor === userUname);
+        if (!isAuthor && !isMod) {
+          return res.status(403).json({ error: 'No permission' });
+        }
+      } else {
+        // Upsert if not found so user never loses their script
+        script = {
+          id: targetId,
+          title: (req.body.title || 'Новый скрипт').trim(),
+          authorId: req.user.id,
+          author: req.user.username,
+          authorAvatar: req.user.avatar,
+          category: req.body.category || 'lua',
+          extension: req.body.extension || 'lua',
+          status: isMod ? 'verified' : 'pending',
+          createdAt: Date.now(),
+          coverImage: '',
+          presetCover: req.body.presetCover || 'cyber-hub',
+          views: 1,
+          viewedIps: {},
+          likes: [],
+          tags: [],
+          description: req.body.description ? req.body.description.trim() : 'Описание отсутствует.',
+          code: (req.body.code || '').trim(),
+          comments: []
+        };
+        db.scripts.unshift(script);
       }
 
       const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;
