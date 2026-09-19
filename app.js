@@ -1109,8 +1109,15 @@ async function loadScriptsFeed() {
     const existingIds = new Set(scripts.map(s => s.id));
     localScripts.forEach(ls => {
       if (!existingIds.has(ls.id) && !isScriptDeletedLocally(ls.id)) {
-        scripts.unshift(ls);
-        existingIds.add(ls.id);
+        const isAuthor = State.currentUser && (
+          ls.authorId === State.currentUser.id ||
+          (ls.author || '').toLowerCase() === (State.currentUser.username || '').toLowerCase()
+        );
+        // Unverified scripts are NOT visible to others
+        if (ls.status === 'verified' || isAuthor || isUserModerator(State.currentUser)) {
+          scripts.unshift(ls);
+          existingIds.add(ls.id);
+        }
 
         // Automatically sync missing local script to server so ALL other users see it!
         if (State.currentUser && (ls.authorId === State.currentUser.id || (ls.author || '').toLowerCase() === (State.currentUser.username || '').toLowerCase() || isUserModerator(State.currentUser))) {

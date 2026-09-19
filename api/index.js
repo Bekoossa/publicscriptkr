@@ -254,15 +254,57 @@ module.exports = async function handler(req, res) {
     // GET /api/scripts
     if (path === '/api/scripts' && method === 'GET') {
       const { category, search, sort, status, authorId, all } = Object.fromEntries(url.searchParams);
-      let list = [...db.scripts];
+      let list = [...(db.scripts || [])];
+      const isMod = isModerator(req.user);
+      const reqUserId = req.user ? String(req.user.id).trim() : null;
+      const reqUsername = req.user ? String(req.user.username || '').toLowerCase().trim() : null;
+
+      // Unverified scripts ("не проверенные на запуск", status !== 'verified') are NEVER visible to other users ("другим").
       if (status) {
-        list = list.filter(s => (s.status || 'pending') === status);
-      } else if (!all) {
-        if (authorId) {
-          list = list.filter(s => s.authorId === authorId);
+        if (isMod) {
+          list = list.filter(s => (s.status || 'pending') === status);
+        } else if (status === 'verified') {
+          list = list.filter(s => (s.status || 'pending') === 'verified');
+        } else if (reqUserId || reqUsername) {
+          list = list.filter(s => (s.status || 'pending') === status && (
+            (reqUserId && String(s.authorId || '').trim() === reqUserId) ||
+            (reqUsername && (s.author || '').toLowerCase().trim() === reqUsername)
+          ));
         } else {
-          // Show all published scripts to visitors (verified and pending), hide only rejected
+          list = [];
+        }
+      } else if (all === 'true' && isMod) {
+        // Moderator with all=true sees moderation queue
+      } else if (authorId) {
+        const isSelf = (reqUserId && reqUserId === String(authorId).trim()) ||
+                       (reqUsername && reqUsername === String(authorId).toLowerCase().trim());
+        if (isSelf || isMod) {
+          list = list.filter(s => 
+            String(s.authorId || '').trim() === String(authorId).trim() ||
+            (s.author || '').toLowerCase().trim() === String(authorId).toLowerCase().trim()
+          );
+        } else {
+          list = list.filter(s => 
+            (String(s.authorId || '').trim() === String(authorId).trim() ||
+             (s.author || '').toLowerCase().trim() === String(authorId).toLowerCase().trim()) &&
+            s.status === 'verified'
+          );
+        }
+      } else {
+        // Public feed:
+        // Only scripts verified for running (status === 'verified') are shown to other users.
+        // The logged-in author can also see their own pending scripts.
+        // Moderators can see all scripts.
+        if (isMod) {
           list = list.filter(s => (s.status || 'pending') !== 'rejected');
+        } else if (reqUserId || reqUsername) {
+          list = list.filter(s => 
+            s.status === 'verified' ||
+            (reqUserId && String(s.authorId || '').trim() === reqUserId) ||
+            (reqUsername && (s.author || '').toLowerCase().trim() === reqUsername)
+          );
+        } else {
+          list = list.filter(s => s.status === 'verified');
         }
       }
       if (category && category !== 'all') {
@@ -357,6 +399,17 @@ module.exports = async function handler(req, res) {
       const targetId = decodeURIComponent(String(scriptGetMatch[1] || '').trim());
       let script = await resolveScript(targetId);
       if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
+
+      // Unverified scripts ("не проверенные на запуск", status !== 'verified') cannot be viewed by other users
+      const isMod = isModerator(req.user);
+      const reqUserId = req.user ? String(req.user.id).trim() : null;
+      const reqUsername = req.user ? String(req.user.username || '').toLowerCase().trim() : null;
+      const isAuthor = (reqUserId && String(script.authorId || '').trim() === reqUserId) ||
+                       (reqUsername && (script.author || '').toLowerCase().trim() === reqUsername);
+
+      if (script.status !== 'verified' && !isAuthor && !isMod) {
+        return res.status(403).json({ error: 'Этот скрипт еще не проверен на запуск и находится на модерации' });
+      }
       
       // Real View count tracker (30 seconds debounce per user or IP)
       if (!script.viewedIps) script.viewedIps = {};
