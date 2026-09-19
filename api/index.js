@@ -47,13 +47,13 @@ module.exports = async function handler(req, res) {
     if (token) {
       const verifiedUserId = verifyToken(token) || (db.tokens ? db.tokens[token] : null);
       if (verifiedUserId) {
+        const OWNER_NAMES = ['kerryscript', 'kerryrbq', 'kerryphone'];
+        const OWNER_IDS = ['u-1789205573347', 'kerryscript', 'kerryrbq'];
+
         let user = db.users.find(u => u.id === verifiedUserId || (u.username || '').toLowerCase() === (verifiedUserId || '').toLowerCase());
         const checkUname = (headerUsername || verifiedUserId || '').toLowerCase();
-        const isKerry = checkUname === 'kerryrbq' || checkUname === 'kerryscript' || checkUname.startsWith('kerry') || verifiedUserId === 'u-1789205573347' || verifiedUserId === 'kerryrbq' || verifiedUserId === 'kerryscript';
+        const isKerry = OWNER_NAMES.includes(checkUname) || OWNER_IDS.includes(verifiedUserId);
 
-        if (!user && isKerry) {
-          user = db.users.find(u => (u.username || '').toLowerCase().startsWith('kerry'));
-        }
         if (!user) {
           const uname = headerUsername || (isKerry ? 'KerryScript' : (verifiedUserId.startsWith('u-') ? `User_${verifiedUserId.slice(-4)}` : verifiedUserId));
           user = {
@@ -68,9 +68,12 @@ module.exports = async function handler(req, res) {
           await saveDB(kv);
         }
         if (user) {
-          if (isKerry || isModerator(user)) {
+          if (isKerry) {
             user.badge = 'ADMIN';
             user.isModerator = true;
+          } else if (user.badge !== 'MODERATOR') {
+            user.badge = 'MEMBER';
+            user.isModerator = false;
           }
           if (!(user.bans && user.bans.full)) {
             req.user = user;
@@ -80,9 +83,12 @@ module.exports = async function handler(req, res) {
     }
 
     if (!req.user && (headerUsername || headerUserId)) {
+      const OWNER_NAMES = ['kerryscript', 'kerryrbq', 'kerryphone'];
+      const OWNER_IDS = ['u-1789205573347', 'kerryscript', 'kerryrbq'];
+
       let user = db.users.find(u => (headerUserId && u.id === headerUserId) || (headerUsername && (u.username || '').toLowerCase() === headerUsername.toLowerCase()));
       const uLower = (headerUsername || '').toLowerCase();
-      const isKerry = uLower === 'kerryrbq' || uLower === 'kerryscript' || uLower.startsWith('kerry') || headerUserId === 'u-1789205573347';
+      const isKerry = OWNER_NAMES.includes(uLower) || OWNER_IDS.includes(headerUserId);
       if (!user && headerUsername) {
         user = {
           id: headerUserId || `u-${Date.now()}`,
@@ -96,9 +102,12 @@ module.exports = async function handler(req, res) {
         await saveDB(kv);
       }
       if (user) {
-        if (isKerry || isModerator(user)) {
+        if (isKerry) {
           user.badge = 'ADMIN';
           user.isModerator = true;
+        } else if (user.badge !== 'MODERATOR') {
+          user.badge = 'MEMBER';
+          user.isModerator = false;
         }
         if (!(user.bans && user.bans.full)) {
           req.user = user;
@@ -492,9 +501,13 @@ module.exports = async function handler(req, res) {
       }
       const { title, category, extension, code, description, tags, imageBase64, presetCover, id } = req.body;
       if (!title || !code) return res.status(400).json({ error: 'Title and code required' });
-      if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.trim()) {
-        return res.status(400).json({ error: 'Скриншот или изображение скрипта обязательно для публикации' });
+
+      let coverImage = '';
+      if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.trim() && imageBase64 !== 'preset') {
+        coverImage = imageBase64;
       }
+      const chosenPreset = presetCover || (category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor'));
+
       const tagsList = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : [category || 'lua']);
       const scriptId = id ? String(id).trim() : ('script-' + Date.now());
 
@@ -506,8 +519,8 @@ module.exports = async function handler(req, res) {
         existing.code = code.trim();
         existing.description = description ? description.trim() : existing.description;
         existing.tags = tagsList;
-        if (imageBase64 && imageBase64 !== 'preset') existing.coverImage = imageBase64;
-        if (presetCover) existing.presetCover = presetCover;
+        if (coverImage && coverImage !== 'preset') existing.coverImage = coverImage;
+        existing.presetCover = chosenPreset;
         existing.updatedAt = Date.now();
         await saveDB(kv);
         return res.json({ message: 'Скрипт обновлен!', script: existing });
@@ -523,8 +536,8 @@ module.exports = async function handler(req, res) {
         extension: extension || 'lua',
         status: isModerator(req.user) ? 'verified' : 'pending',
         createdAt: Date.now(),
-        coverImage: imageBase64 || '',
-        presetCover: presetCover || 'cyber-hub',
+        coverImage: coverImage,
+        presetCover: chosenPreset,
         views: 1,
         viewedIps: {},
         likes: [],
@@ -535,20 +548,18 @@ module.exports = async function handler(req, res) {
       };
       db.scripts.unshift(newScript);
       if (!isModerator(req.user)) {
-        const modUsers = (db.users || []).filter(u => isModerator(u) || (u.username || '').toLowerCase().startsWith('kerry') || u.badge === 'ADMIN');
         if (!db.notifications) db.notifications = [];
-        modUsers.forEach(mod => {
-          db.notifications.unshift({
-            id: 'n-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
-            userId: mod.id,
-            scriptId: newScript.id,
-            scriptTitle: newScript.title,
-            title: 'Новый скрипт на проверку ⏳',
-            message: `Пользователь ${req.user.username} отправил скрипт «${newScript.title}» на проверку.`,
-            status: 'pending',
-            isRead: false,
-            createdAt: Date.now()
-          });
+        db.notifications.unshift({
+          id: 'n-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+          userId: 'moderators',
+          isModNotification: true,
+          scriptId: newScript.id,
+          scriptTitle: newScript.title,
+          title: 'Новый скрипт на проверку ⏳',
+          message: `Пользователь ${req.user.username} отправил скрипт «${newScript.title}» на проверку.`,
+          status: 'pending',
+          isRead: false,
+          createdAt: Date.now()
         });
       }
       await saveDB(kv);
@@ -812,7 +823,12 @@ module.exports = async function handler(req, res) {
     if (path === '/api/notifications' && method === 'GET') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       if (!db.notifications) db.notifications = [];
-      const list = db.notifications.filter(n => n.userId === req.user.id);
+      const isMod = isModerator(req.user);
+      const list = db.notifications.filter(n => {
+        if (n.userId === req.user.id) return true;
+        if (isMod && (n.isModNotification || n.userId === 'moderators' || n.status === 'pending')) return true;
+        return false;
+      });
       list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       return res.json({ notifications: list, unreadCount: list.filter(n => !n.isRead).length });
     }
@@ -821,7 +837,12 @@ module.exports = async function handler(req, res) {
     if (path === '/api/notifications/read-all' && method === 'POST') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       if (!db.notifications) db.notifications = [];
-      db.notifications.forEach(n => { if (n.userId === req.user.id) n.isRead = true; });
+      const isMod = isModerator(req.user);
+      db.notifications.forEach(n => {
+        if (n.userId === req.user.id || (isMod && (n.isModNotification || n.userId === 'moderators'))) {
+          n.isRead = true;
+        }
+      });
       await saveDB(kv);
       return res.json({ message: 'All read' });
     }

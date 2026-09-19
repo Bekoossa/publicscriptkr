@@ -159,6 +159,15 @@ function parseCookies(req) {
   });
   return list;
 }
+const OWNER_USERNAMES = ['kerryscript', 'kerryrbq', 'kerryphone'];
+const OWNER_USER_IDS = ['u-1789205573347', 'kerryscript', 'kerryrbq'];
+
+function isModerator(user) {
+  if (!user) return false;
+  const uname = (user.username || '').toLowerCase().trim();
+  const uid = String(user.id || '').toLowerCase().trim();
+  return OWNER_USERNAMES.includes(uname) || OWNER_USER_IDS.includes(uid);
+}
 
 // Authentication & Security Middleware
 function authMiddleware(req, res, next) {
@@ -193,11 +202,8 @@ function authMiddleware(req, res, next) {
     if (userId) {
       let user = db.users.find(u => u.id === userId || (u.username || '').toLowerCase() === (userId || '').toLowerCase());
       const checkUname = (headerUsername || userId || '').toLowerCase();
-      const isKerry = checkUname === 'kerryrbq' || checkUname === 'kerryscript' || checkUname.startsWith('kerry') || userId === 'u-1789205573347' || userId === 'kerryrbq' || userId === 'kerryscript';
+      const isKerry = OWNER_USERNAMES.includes(checkUname) || OWNER_USER_IDS.includes(userId);
 
-      if (!user && isKerry) {
-        user = db.users.find(u => (u.username || '').toLowerCase().startsWith('kerry'));
-      }
       if (!user) {
         const uname = headerUsername || (isKerry ? 'KerryScript' : (userId.startsWith('u-') ? `User_${userId.slice(-4)}` : userId));
         user = {
@@ -212,9 +218,12 @@ function authMiddleware(req, res, next) {
         saveDB();
       }
       if (user) {
-        if (isKerry || isModerator(user)) {
+        if (isKerry) {
           user.badge = 'ADMIN';
           user.isModerator = true;
+        } else {
+          user.badge = 'MEMBER';
+          user.isModerator = false;
         }
         user.lastIp = clientIp;
         user.lastActiveAt = Date.now();
@@ -233,7 +242,7 @@ function authMiddleware(req, res, next) {
   if (!req.user && (headerUsername || headerUserId)) {
     let user = db.users.find(u => (headerUserId && u.id === headerUserId) || (headerUsername && (u.username || '').toLowerCase() === headerUsername.toLowerCase()));
     const uLower = (headerUsername || '').toLowerCase();
-    const isKerry = uLower === 'kerryrbq' || uLower === 'kerryscript' || uLower.startsWith('kerry') || headerUserId === 'u-1789205573347';
+    const isKerry = OWNER_USERNAMES.includes(uLower) || OWNER_USER_IDS.includes(headerUserId);
     if (!user && headerUsername) {
       user = {
         id: headerUserId || `u-${Date.now()}`,
@@ -247,9 +256,12 @@ function authMiddleware(req, res, next) {
       saveDB();
     }
     if (user) {
-      if (isKerry || isModerator(user)) {
+      if (isKerry) {
         user.badge = 'ADMIN';
         user.isModerator = true;
+      } else {
+        user.badge = 'MEMBER';
+        user.isModerator = false;
       }
       if (!(user.bans && user.bans.full)) {
         req.user = user;
@@ -264,23 +276,6 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Пожалуйста, войдите в аккаунт или зарегистрируйтесь.' });
   }
   next();
-}
-
-function isModerator(user) {
-  if (!user) return false;
-  const uname = (user.username || '').toLowerCase().trim();
-  const uid = String(user.id || '').toLowerCase().trim();
-  return (
-    user.badge === 'ADMIN' ||
-    user.badge === 'MODERATOR' ||
-    uname === 'kerryrbq' ||
-    uname === 'kerryscript' ||
-    uname.startsWith('kerry') ||
-    uid === 'u-1789205573347' ||
-    uid === 'kerryrbq' ||
-    uid === 'kerryscript' ||
-    user.isModerator === true
-  );
 }
 
 function requireModerator(req, res, next) {
@@ -838,16 +833,16 @@ app.post('/api/scripts', (req, res) => {
     return res.status(400).json({ error: 'Название и код скрипта обязательны' });
   }
 
-  if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.trim()) {
-    return res.status(400).json({ error: 'Скриншот или изображение скрипта обязательно для публикации' });
+  let coverImage = '';
+  if (imageBase64 && typeof imageBase64 === 'string' && imageBase64.trim() && imageBase64 !== 'preset') {
+    if (imageBase64.startsWith('data:image')) {
+      coverImage = saveBase64Image(imageBase64, 'script_cover') || imageBase64;
+    } else {
+      coverImage = imageBase64;
+    }
   }
 
-  let coverImage = '';
-  if (imageBase64.startsWith('data:image')) {
-    coverImage = saveBase64Image(imageBase64, 'script_cover') || imageBase64;
-  } else {
-    coverImage = imageBase64;
-  }
+  const chosenPreset = presetCover || (category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor'));
 
   const tagsList = Array.isArray(tags)
     ? tags
@@ -866,7 +861,7 @@ app.post('/api/scripts', (req, res) => {
     existing.description = description ? description.trim() : existing.description;
     existing.tags = tagsList;
     if (coverImage && coverImage !== 'preset') existing.coverImage = coverImage;
-    if (presetCover) existing.presetCover = presetCover;
+    existing.presetCover = chosenPreset;
     existing.updatedAt = Date.now();
     saveDB();
     return res.json({ message: 'Скрипт обновлен!', script: existing });
@@ -883,7 +878,7 @@ app.post('/api/scripts', (req, res) => {
     status: isModerator(req.user) ? 'verified' : 'pending',
     createdAt: Date.now(),
     coverImage: coverImage,
-    presetCover: presetCover || 'cyber-hub',
+    presetCover: chosenPreset,
     views: 1,
     viewedIps: {},
     likes: [],
@@ -896,24 +891,22 @@ app.post('/api/scripts', (req, res) => {
   if (!db.scripts) db.scripts = [];
   db.scripts.unshift(newScript);
 
-  // If uploaded by regular user, create admin notification for Kerryrbq!
+  // If uploaded by regular user, create admin notification for moderators
   const isMod = isModerator(req.user);
   if (!isMod) {
-    const kerryUser = db.users.find(u => (u.username || '').toLowerCase() === 'kerryrbq');
-    if (kerryUser) {
-      if (!db.notifications) db.notifications = [];
-      db.notifications.unshift({
-        id: 'n-' + Date.now(),
-        userId: kerryUser.id,
-        scriptId: newScript.id,
-        scriptTitle: newScript.title,
-        title: 'Новый скрипт на проверку ⏳',
-        message: `Пользователь ${req.user.username} отправил скрипт «${newScript.title}». Проверьте его в окне модерации!`,
-        status: 'pending',
-        isRead: false,
-        createdAt: Date.now()
-      });
-    }
+    if (!db.notifications) db.notifications = [];
+    db.notifications.unshift({
+      id: 'n-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      userId: 'moderators',
+      isModNotification: true,
+      scriptId: newScript.id,
+      scriptTitle: newScript.title,
+      title: 'Новый скрипт на проверку ⏳',
+      message: `Пользователь ${req.user.username} отправил скрипт «${newScript.title}». Проверьте его в окне модерации!`,
+      status: 'pending',
+      isRead: false,
+      createdAt: Date.now()
+    });
   }
 
   saveDB();
@@ -1139,7 +1132,12 @@ app.post('/api/scripts/:id/moderate', requireAuth, requireModerator, (req, res) 
 // Get User Notifications
 app.get('/api/notifications', requireAuth, (req, res) => {
   if (!db.notifications) db.notifications = [];
-  const list = db.notifications.filter(n => n.userId === req.user.id);
+  const isMod = isModerator(req.user);
+  const list = db.notifications.filter(n => {
+    if (n.userId === req.user.id) return true;
+    if (isMod && (n.isModNotification || n.userId === 'moderators' || n.status === 'pending')) return true;
+    return false;
+  });
   list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const unreadCount = list.filter(n => !n.isRead).length;
   res.json({ notifications: list, unreadCount });
@@ -1148,8 +1146,9 @@ app.get('/api/notifications', requireAuth, (req, res) => {
 // Mark all notifications as read
 app.post('/api/notifications/read-all', requireAuth, (req, res) => {
   if (!db.notifications) db.notifications = [];
+  const isMod = isModerator(req.user);
   db.notifications.forEach(n => {
-    if (n.userId === req.user.id) {
+    if (n.userId === req.user.id || (isMod && (n.isModNotification || n.userId === 'moderators'))) {
       n.isRead = true;
     }
   });

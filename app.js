@@ -115,27 +115,18 @@ function getAvatarSrc(src) {
   return DEFAULT_AVATARS[0];
 }
 
+const OWNER_USERNAMES = ['kerryscript', 'kerryrbq', 'kerryphone'];
+const OWNER_USER_IDS = ['u-1789205573347', 'kerryscript', 'kerryrbq'];
+
 function isUserModerator(user) {
   if (!user) return false;
   const uname = (user.username || '').toLowerCase().trim();
   const uid = String(user.id || '').toLowerCase().trim();
-  return (
-    user.badge === 'ADMIN' ||
-    user.badge === 'MODERATOR' ||
-    uname === 'kerryrbq' ||
-    uname === 'kerryscript' ||
-    uname.startsWith('kerry') ||
-    uid === 'u-1789205573347' ||
-    uid === 'kerryrbq' ||
-    uid === 'kerryscript' ||
-    user.isModerator === true
-  );
+  return OWNER_USERNAMES.includes(uname) || OWNER_USER_IDS.includes(uid);
 }
 
-function canUserManageScript(script, user = State.currentUser) {
+function isScriptAuthor(script, user = State.currentUser) {
   if (!script || !user) return false;
-  if (isUserModerator(user)) return true;
-
   const userUname = (user.username || '').trim().toLowerCase();
   const scriptAuthor = (script.author || '').trim().toLowerCase();
   const scriptAuthorId = script.authorId ? String(script.authorId).trim() : '';
@@ -144,6 +135,12 @@ function canUserManageScript(script, user = State.currentUser) {
   if (scriptAuthorId && userId && scriptAuthorId === userId) return true;
   if (scriptAuthor && userUname && scriptAuthor === userUname) return true;
   return false;
+}
+
+function canUserManageScript(script, user = State.currentUser) {
+  if (!script || !user) return false;
+  if (isUserModerator(user)) return true;
+  return isScriptAuthor(script, user);
 }
 
 
@@ -1167,7 +1164,7 @@ async function loadScriptsFeed() {
       card.className = 'script-card';
       card.dataset.id = script.id;
 
-      const canManage = canUserManageScript(script, State.currentUser);
+      const isAuthor = isScriptAuthor(script, State.currentUser);
       const coverSrc = getCardCover(script);
       const avatarSrc = getAvatarSrc(script.authorAvatar);
       const statusBadgeHtml = renderCardStatusBadge(script.status);
@@ -1182,7 +1179,7 @@ async function loadScriptsFeed() {
           <div class="script-thumb-overlay"></div>
           ${statusBadgeHtml}
           <span class="script-thumb-badge">${(script.extension || 'lua').toUpperCase()}</span>
-          ${canManage ? `
+          ${isAuthor ? `
             <button class="script-thumb-edit-btn" title="Редактировать мой скрипт" data-action="edit-script" data-id="${script.id}">
               <i class="fa-solid fa-pen-to-square"></i>
             </button>
@@ -1427,11 +1424,11 @@ function renderScriptDetailModal(script) {
     modPanel.classList.add('hidden');
   }
 
-  // Author Actions Bar (Author or Kerryrbq)
-  const canManage = canUserManageScript(script, State.currentUser);
+  // Author Actions Bar (Author only)
+  const isAuthor = isScriptAuthor(script, State.currentUser);
   const authorActionsBar = document.getElementById('detailAuthorActionsBar');
   if (authorActionsBar) {
-    if (canManage) {
+    if (isAuthor) {
       authorActionsBar.classList.remove('hidden');
       const editBtn = document.getElementById('detailEditBtn');
       if (editBtn) {
@@ -1449,7 +1446,7 @@ function renderScriptDetailModal(script) {
   // Detail Modal Header Edit Button
   const headerEditBtn = document.getElementById('detailHeaderEditBtn');
   if (headerEditBtn) {
-    if (canManage) {
+    if (isAuthor) {
       headerEditBtn.classList.remove('hidden');
       headerEditBtn.onclick = () => openEditScriptModal(script);
     } else {
@@ -1460,7 +1457,7 @@ function renderScriptDetailModal(script) {
   // Code Viewer Toolbar Edit Button
   const codeEditBtn = document.getElementById('detailCodeEditBtn');
   if (codeEditBtn) {
-    if (canManage) {
+    if (isAuthor) {
       codeEditBtn.classList.remove('hidden');
       codeEditBtn.onclick = () => openEditScriptModal(script);
     } else {
@@ -2940,25 +2937,17 @@ async function handleUploadSubmit(e) {
     return;
   }
 
-  // Mandatory Image Requirement
-  if (!State.uploadedImageDataUrl) {
-    showToast('Загрузка картинки обязательна! Прикрепите скриншот или выберите готовую тему.', 'warning');
-    const dropzone = document.getElementById('imageDropzone');
-    if (dropzone) {
-      dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      dropzone.classList.add('dropzone-error-shake');
-      setTimeout(() => dropzone.classList.remove('dropzone-error-shake'), 1200);
-    }
-    return;
-  }
+  const isMod = isUserModerator(State.currentUser);
+  const chosenPreset = category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor');
+  const finalImage = State.uploadedImageDataUrl || '';
 
   const submitBtn = document.getElementById('publishScriptSubmitBtn');
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Сохранение на сервер...';
 
   showActionLoading({
-    title: 'Публикация скрипта...',
-    subtitle: 'Загружаем обложку и сохраняем скрипт на сервер...',
+    title: isMod ? 'Публикация скрипта...' : 'Отправка на проверку...',
+    subtitle: isMod ? 'Сохраняем скрипт сразу в каталог...' : 'Отправляем скрипт модератору Kerryrbq...',
     icon: 'fa-solid fa-rocket fa-fade'
   });
 
@@ -2970,8 +2959,8 @@ async function handleUploadSubmit(e) {
       code,
       description,
       tags,
-      imageBase64: State.uploadedImageDataUrl,
-      presetCover: category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor'),
+      imageBase64: finalImage,
+      presetCover: chosenPreset,
       author: State.currentUser?.username || 'Пользователь',
       authorId: State.currentUser?.id || `u-${Date.now()}`,
       authorAvatar: State.currentUser?.avatar || DEFAULT_AVATARS[0]
@@ -2984,6 +2973,7 @@ async function handleUploadSubmit(e) {
       body: JSON.stringify(payload)
     });
 
+    const initialStatus = isMod ? 'verified' : 'pending';
     const newScript = (data && data.script) ? data.script : {
       id: 'script-' + Date.now(),
       title,
@@ -2992,13 +2982,13 @@ async function handleUploadSubmit(e) {
       code,
       description,
       tags: typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : (tags || []),
-      coverImage: State.uploadedImageDataUrl || '',
-      presetCover: category === 'roblox' ? 'cyber-hub' : (extension === 'txt' ? 'dark-config' : 'neon-executor'),
+      coverImage: finalImage,
+      presetCover: chosenPreset,
       author: State.currentUser?.username || 'User',
       authorId: State.currentUser?.id,
       authorAvatar: State.currentUser?.avatar,
       createdAt: Date.now(),
-      status: 'verified',
+      status: initialStatus,
       views: 1,
       likes: [],
       comments: []
@@ -3008,16 +2998,31 @@ async function handleUploadSubmit(e) {
     State.scriptsCache.set(newScript.id, newScript);
     saveLocalPublishedScript(newScript);
 
+    const successMsg = isMod 
+      ? 'Скрипт успешно опубликован на сайте!' 
+      : 'Скрипт отправлен на проверку модератору! Он появится в каталоге после проверки.';
+
     updateActionLoading({
-      title: 'Скрипт успешно опубликован!',
-      subtitle: 'Добавляем в каталог...',
+      title: isMod ? 'Скрипт опубликован!' : 'Отправлено на проверку!',
+      subtitle: isMod ? 'Добавляем в каталог...' : 'Модератор Kerryrbq уведомлен...',
       icon: 'fa-solid fa-circle-check'
     });
 
     await hideActionLoading(350);
 
-    showToast('Скрипт успешно опубликован!', 'success');
-    DebugConsole.log('info', '✅ Скрипт опубликован успешно:', data);
+    showToast(successMsg, 'success');
+    DebugConsole.log('info', '✅ Скрипт обработан успешно:', data);
+    
+    // Reset upload state
+    State.uploadedImageDataUrl = null;
+    const dropzone = document.getElementById('imageDropzone');
+    if (dropzone) {
+      dropzone.classList.remove('has-image');
+      const previewEl = document.getElementById('imageDropzonePreview');
+      if (previewEl) previewEl.src = '';
+    }
+    document.getElementById('uploadForm').reset();
+
     closeUploadModal();
     await loadScriptsFeed();
     updatePlatformStats();
