@@ -325,14 +325,31 @@ module.exports = async function handler(req, res) {
     // POST /api/scripts
     if (path === '/api/scripts' && method === 'POST') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-      const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;
+      const { title, category, extension, code, description, tags, imageBase64, presetCover, id } = req.body;
       if (!title || !code) return res.status(400).json({ error: 'Title and code required' });
       if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.trim()) {
         return res.status(400).json({ error: 'Скриншот или изображение скрипта обязательно для публикации' });
       }
       const tagsList = Array.isArray(tags) ? tags : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) : [category || 'lua']);
+      const scriptId = id ? String(id).trim() : ('script-' + Date.now());
+
+      let existing = db.scripts.find(s => String(s.id).trim() === scriptId);
+      if (existing) {
+        existing.title = title.trim();
+        existing.category = category || existing.category;
+        existing.extension = extension || existing.extension;
+        existing.code = code.trim();
+        existing.description = description ? description.trim() : existing.description;
+        existing.tags = tagsList;
+        if (imageBase64 && imageBase64 !== 'preset') existing.coverImage = imageBase64;
+        if (presetCover) existing.presetCover = presetCover;
+        existing.updatedAt = Date.now();
+        await saveDB(kv);
+        return res.json({ message: 'Скрипт обновлен!', script: existing });
+      }
+
       const newScript = {
-        id: 'script-' + Date.now(),
+        id: scriptId,
         title: title.trim(),
         authorId: req.user.id,
         author: req.user.username,
@@ -579,8 +596,25 @@ module.exports = async function handler(req, res) {
       if (!req.user || !isModerator(req.user)) return res.status(403).json({ error: 'Moderator access required' });
       const { status, note } = req.body;
       if (!['verified', 'pending', 'rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
-      const script = db.scripts.find(s => s.id === modMatch[1]);
-      if (!script) return res.status(404).json({ error: 'Script not found' });
+      const targetId = decodeURIComponent(String(modMatch[1] || '').trim());
+      let script = db.scripts.find(s => String(s.id).trim() === targetId);
+      if (!script) {
+        const initial = getInitialDB();
+        const seedScript = (initial.scripts || []).find(s => String(s.id).trim() === targetId);
+        if (seedScript) {
+          script = JSON.parse(JSON.stringify(seedScript));
+          db.scripts.unshift(script);
+        }
+      }
+      if (!script && req.body.script) {
+        script = {
+          ...req.body.script,
+          id: targetId,
+          status: status
+        };
+        db.scripts.unshift(script);
+      }
+      if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
       script.status = status;
       script.moderatedBy = req.user.username;
       script.moderatedAt = Date.now();

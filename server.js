@@ -682,7 +682,7 @@ app.get('/api/scripts/:id', (req, res) => {
 
 // Upload New Script
 app.post('/api/scripts', requireAuth, (req, res) => {
-  const { title, category, extension, code, description, tags, imageBase64, presetCover } = req.body;
+  const { title, category, extension, code, description, tags, imageBase64, presetCover, id } = req.body;
 
   if (!title || !code) {
     return res.status(400).json({ error: 'Название и код скрипта обязательны' });
@@ -695,6 +695,8 @@ app.post('/api/scripts', requireAuth, (req, res) => {
   let coverImage = '';
   if (imageBase64.startsWith('data:image')) {
     coverImage = saveBase64Image(imageBase64, 'script_cover') || imageBase64;
+  } else {
+    coverImage = imageBase64;
   }
 
   const tagsList = Array.isArray(tags)
@@ -703,8 +705,25 @@ app.post('/api/scripts', requireAuth, (req, res) => {
       ? tags.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean)
       : [category || 'lua']);
 
+  const scriptId = id ? String(id).trim() : ('script-' + Date.now());
+
+  let existing = (db.scripts || []).find(s => String(s.id).trim() === scriptId);
+  if (existing) {
+    existing.title = title.trim();
+    existing.category = category || existing.category;
+    existing.extension = extension || existing.extension;
+    existing.code = code.trim();
+    existing.description = description ? description.trim() : existing.description;
+    existing.tags = tagsList;
+    if (coverImage && coverImage !== 'preset') existing.coverImage = coverImage;
+    if (presetCover) existing.presetCover = presetCover;
+    existing.updatedAt = Date.now();
+    saveDB();
+    return res.json({ message: 'Скрипт обновлен!', script: existing });
+  }
+
   const newScript = {
-    id: 'script-' + Date.now(),
+    id: scriptId,
     title: title.trim(),
     authorId: req.user.id,
     author: req.user.username,
@@ -724,6 +743,7 @@ app.post('/api/scripts', requireAuth, (req, res) => {
     comments: []
   };
 
+  if (!db.scripts) db.scripts = [];
   db.scripts.unshift(newScript);
 
   // If uploaded by regular user, create admin notification for Kerryrbq!
@@ -887,7 +907,18 @@ app.post('/api/scripts/:id/moderate', requireAuth, requireModerator, (req, res) 
     return res.status(400).json({ error: 'Недопустимый статус. Разрешены: verified, pending, rejected' });
   }
 
-  const script = db.scripts.find(s => s.id === req.params.id);
+  const targetId = decodeURIComponent(String(req.params.id || '').trim());
+  let script = findScriptById(targetId);
+  if (!script && req.body.script) {
+    script = {
+      ...req.body.script,
+      id: targetId,
+      status: status
+    };
+    if (!db.scripts) db.scripts = [];
+    db.scripts.unshift(script);
+    saveDB();
+  }
   if (!script) {
     return res.status(404).json({ error: 'Скрипт не найден' });
   }

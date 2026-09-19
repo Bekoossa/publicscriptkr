@@ -567,7 +567,11 @@ async function api(url, options = {}, isRetry = false) {
 
     if (!res.ok) {
       const errMsg = data.error || `HTTP ${res.status}: Ошибка сервера`;
-      DebugConsole.log('error', `❌ [${method}] ${url} (${res.status} in ${duration}ms): ${errMsg}`, { status: res.status, response: data });
+      if (options.silentFail && res.status === 404) {
+        DebugConsole.log('api', `ℹ️ [${method}] ${url} (404 handled gracefully)`);
+      } else {
+        DebugConsole.log('error', `❌ [${method}] ${url} (${res.status} in ${duration}ms): ${errMsg}`, { status: res.status, response: data });
+      }
 
       // Auto-heal 401 if user is logged in as Kerryrbq or cached user
       if (res.status === 401 && !isRetry && State.currentUser) {
@@ -582,6 +586,9 @@ async function api(url, options = {}, isRetry = false) {
       const err = new Error(errMsg);
       err.status = res.status;
       err.data = data;
+      if (options.silentFail && res.status === 404) {
+        err.logged = true;
+      }
       throw err;
     }
 
@@ -1570,7 +1577,7 @@ async function openScriptDetail(scriptId, fallbackScript = null) {
 
   // 3. Revalidate in background from server
   try {
-    const data = await api(`/api/scripts/${scriptId}`);
+    const data = await api(`/api/scripts/${encodeURIComponent(scriptId)}`, { silentFail: !!script });
     if (data && data.script) {
       if (!State.scriptsCache) State.scriptsCache = new Map();
       State.scriptsCache.set(data.script.id, data.script);
@@ -1584,6 +1591,26 @@ async function openScriptDetail(scriptId, fallbackScript = null) {
       DebugConsole.log('error', `Script ${scriptId} not found on server.`, err);
     } else {
       DebugConsole.log('info', `Displaying cached local data for ${scriptId}.`);
+      // Auto-sync script to server if it was missing
+      if (err.status === 404 && (canUserManageScript(script, State.currentUser) || isUserModerator(State.currentUser))) {
+        api('/api/scripts', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: script.id,
+            title: script.title,
+            category: script.category,
+            extension: script.extension,
+            code: script.code,
+            description: script.description,
+            tags: script.tags,
+            imageBase64: script.coverImage || 'preset',
+            presetCover: script.presetCover || 'cyber-hub'
+          }),
+          silentFail: true
+        }).then(() => {
+          DebugConsole.log('info', `✅ Local script ${scriptId} auto-synced to server.`);
+        }).catch(() => {});
+      }
     }
   }
 }
@@ -1643,7 +1670,7 @@ function switchDetailTab(tabName) {
 }
 
 let _isModerating = false;
-async function handleModerateScript(status, targetScriptId = null) {
+async function handleModerateScript(status, targetScriptId = null, fallbackScript = null) {
   if (_isModerating) return;
 
   if (!isUserModerator(State.currentUser)) {
@@ -1682,9 +1709,15 @@ async function handleModerateScript(status, targetScriptId = null) {
   }
 
   try {
-    const res = await api(`/api/scripts/${scriptId}/moderate`, {
+    const payload = { status, note };
+    const scriptToAttach = fallbackScript || (State.scriptsCache && State.scriptsCache.get(scriptId));
+    if (scriptToAttach) {
+      payload.script = scriptToAttach;
+    }
+
+    const res = await api(`/api/scripts/${encodeURIComponent(scriptId)}/moderate`, {
       method: 'POST',
-      body: JSON.stringify({ status, note })
+      body: JSON.stringify(payload)
     });
 
     const updatedScript = (res && res.script) ? res.script : { id: scriptId, status };
@@ -1904,7 +1937,7 @@ async function openEditScriptModal(scriptOrId) {
 
   // 2. Fetch single script detail to ensure complete fresh code is loaded
   try {
-    const res = await api(`/api/scripts/${encodeURIComponent(targetId)}`);
+    const res = await api(`/api/scripts/${encodeURIComponent(targetId)}`, { silentFail: !!script });
     if (res && res.script) {
       script = res.script;
       if (!State.scriptsCache) State.scriptsCache = new Map();
@@ -1917,6 +1950,23 @@ async function openEditScriptModal(scriptOrId) {
       return;
     }
     DebugConsole.log('info', `Using cached script data for edit: ${targetId}`);
+    if (err.status === 404 && (canUserManageScript(script, State.currentUser) || isUserModerator(State.currentUser))) {
+      api('/api/scripts', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: script.id,
+          title: script.title,
+          category: script.category,
+          extension: script.extension,
+          code: script.code,
+          description: script.description,
+          tags: script.tags,
+          imageBase64: script.coverImage || 'preset',
+          presetCover: script.presetCover || 'cyber-hub'
+        }),
+        silentFail: true
+      }).catch(() => {});
+    }
   }
 
   if (!canUserManageScript(script, State.currentUser)) {
@@ -2134,6 +2184,13 @@ async function loadModerationQueue() {
     const queue = data.queue || [];
     const count = data.pendingCount || queue.length;
 
+    // Cache queue scripts in memory & local storage immediately
+    if (!State.scriptsCache) State.scriptsCache = new Map();
+    queue.forEach(s => {
+      State.scriptsCache.set(s.id, s);
+      saveLocalPublishedScript(s);
+    });
+
     if (headerPill) {
       headerPill.textContent = `${count} ${count === 1 ? 'скрипт ожидает' : (count >= 2 && count <= 4 ? 'скрипта ожидают' : 'скриптов ожидают')} проверки`;
     }
@@ -2156,8 +2213,8 @@ async function loadModerationQueue() {
     list.innerHTML = queue.map(script => {
       const coverSrc = script.coverImage || (PRESET_COVERS[script.presetCover] || PRESET_COVERS['cyber-hub']);
       const thumbHtml = coverSrc ?
-        `<img src="${escapeHtml(coverSrc)}" alt="${escapeHtml(script.title)}" class="mod-queue-card-thumb" onerror="this.outerHTML='<div class=\\'mod-queue-card-thumb-placeholder\\'><i class=\\'fa-solid fa-code\\'></i><span>${escapeHtml(script.extension || 'lua').toUpperCase()}</span></div>'">` :
-        `<div class="mod-queue-card-thumb-placeholder"><i class="fa-solid fa-code"></i><span>${escapeHtml(script.extension || 'lua').toUpperCase()}</span></div>`;
+        `<img src="${escapeHtml(coverSrc)}" alt="${escapeHtml(script.title)}" class="mod-queue-card-thumb" style="width: 140px; height: 90px; min-width: 140px; max-width: 140px; max-height: 90px; object-fit: cover; border-radius: 10px; flex-shrink: 0; display: block;" onerror="this.outerHTML='<div class=\\'mod-queue-card-thumb-placeholder\\' style=\\'width:140px; height:90px; min-width:140px; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; flex-shrink:0;\\'><i class=\\'fa-solid fa-code\\'></i><span>${escapeHtml(script.extension || 'lua').toUpperCase()}</span></div>'">` :
+        `<div class="mod-queue-card-thumb-placeholder" style="width: 140px; height: 90px; min-width: 140px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0;"><i class="fa-solid fa-code"></i><span>${escapeHtml(script.extension || 'lua').toUpperCase()}</span></div>`;
 
       const codeSnippet = (script.code || '').split('\n').slice(0, 4).join('\n');
 
@@ -2169,9 +2226,9 @@ async function loadModerationQueue() {
               <div class="mod-queue-card-details">
                 <div class="mod-queue-card-title">${escapeHtml(script.title)}</div>
                 <div class="mod-queue-card-meta">
-                  <span class="mod-queue-meta-author clickable-author" onclick="event.stopPropagation(); window.openPublicProfile('${script.authorId}')" title="Открыть профиль автора">
+                  <span class="mod-queue-meta-author clickable-author" onclick="event.stopPropagation(); window.openPublicProfile('${escapeHtml(script.authorId || '')}')" title="Открыть профиль автора">
                     <img src="${escapeHtml(script.authorAvatar || DEFAULT_AVATARS[0])}" class="mod-queue-author-avatar clickable-author-avatar">
-                    ${escapeHtml(script.authorName || 'Пользователь')}
+                    ${escapeHtml(script.author || script.authorName || 'Пользователь')}
                   </span>
                   <span><i class="fa-regular fa-clock"></i> ${formatRelativeTime(script.createdAt)}</span>
                   <span class="tag-pill">.${escapeHtml(script.extension || 'lua')}</span>
@@ -2186,16 +2243,16 @@ async function loadModerationQueue() {
           <pre class="mod-queue-code-preview"><code>${escapeHtml(codeSnippet || '-- Код скрипта')}</code></pre>
 
           <div class="mod-queue-card-actions">
-            <button class="mod-card-btn mod-card-btn-approve" onclick="window.handleQueueApprove('${script.id}')">
+            <button class="mod-card-btn mod-card-btn-approve" onclick="window.handleQueueApprove('${escapeHtml(script.id)}')">
               <i class="fa-solid fa-circle-check"></i> Одобрить на сайт
             </button>
-            <button class="mod-card-btn mod-card-btn-reject" onclick="window.handleQueueReject('${script.id}')">
+            <button class="mod-card-btn mod-card-btn-reject" onclick="window.handleQueueReject('${escapeHtml(script.id)}')">
               <i class="fa-solid fa-circle-xmark"></i> Отклонить
             </button>
-            <button class="mod-card-btn mod-card-btn-view" onclick="window.openScriptDetail('${script.id}')">
+            <button class="mod-card-btn mod-card-btn-view" onclick="window.openScriptDetail('${escapeHtml(script.id)}')">
               <i class="fa-solid fa-eye"></i> Проверить полностью
             </button>
-            <button class="mod-card-btn mod-card-btn-delete" onclick="window.handleDeleteScript('${script.id}')">
+            <button class="mod-card-btn mod-card-btn-delete" onclick="window.handleDeleteScript('${escapeHtml(script.id)}')">
               <i class="fa-solid fa-trash-can"></i> Удалить
             </button>
           </div>
@@ -2210,10 +2267,12 @@ async function loadModerationQueue() {
 
 // Global hooks for inline event handlers in queue cards
 window.handleQueueApprove = async (id) => {
-  await handleModerateScript('verified', id);
+  const s = State.scriptsCache ? State.scriptsCache.get(id) : null;
+  await handleModerateScript('verified', id, s);
 };
 window.handleQueueReject = async (id) => {
-  await handleModerateScript('rejected', id);
+  const s = State.scriptsCache ? State.scriptsCache.get(id) : null;
+  await handleModerateScript('rejected', id, s);
 };
 window.handleDeleteScript = handleDeleteScript;
 window.openScriptDetail = openScriptDetail;
