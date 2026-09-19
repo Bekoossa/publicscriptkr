@@ -3845,6 +3845,32 @@ button.is-busy,
   margin: 0 auto;
 }
 
+/* ==========================================================================
+   INSTANT LIKE ANIMATION & INTERACTION
+   ========================================================================== */
+@keyframes likePulseKeyframe {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.42); }
+  70% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+.card-like-btn.like-pulse i,
+.like-action-btn.like-pulse i {
+  animation: likePulseKeyframe 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+  display: inline-block;
+}
+
+.card-like-btn.liked {
+  color: #f43f5e !important;
+  background: rgba(244, 63, 94, 0.15) !important;
+  border-color: rgba(244, 63, 94, 0.35) !important;
+}
+
+.card-like-btn.liked i {
+  color: #f43f5e !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

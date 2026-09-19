@@ -647,21 +647,41 @@ function findScriptById(id) {
   return script;
 }
 
+function resolveScript(id, fallbackScript = null) {
+  if (!id) return null;
+  const targetId = decodeURIComponent(String(id).trim());
+  let script = findScriptById(targetId);
+  if (!script && fallbackScript) {
+    script = {
+      ...fallbackScript,
+      id: targetId,
+      likes: Array.isArray(fallbackScript.likes) ? fallbackScript.likes : [],
+      ratings: Array.isArray(fallbackScript.ratings) ? fallbackScript.ratings : [],
+      comments: Array.isArray(fallbackScript.comments) ? fallbackScript.comments : [],
+      views: typeof fallbackScript.views === 'number' ? fallbackScript.views : 1
+    };
+    if (!db.scripts) db.scripts = [];
+    db.scripts.unshift(script);
+    saveDB();
+  }
+  return script;
+}
+
 // Get Single Script Detail (Increments Real Views on Disk)
 app.get('/api/scripts/:id', (req, res) => {
-  const script = findScriptById(req.params.id);
+  const script = resolveScript(req.params.id);
   if (!script) {
     return res.status(404).json({ error: 'Скрипт не найден' });
   }
 
-  // Real View count tracker
+  // Real View count tracker (30s debounce per user or IP)
   const clientIp = req.ip || req.headers['x-forwarded-for'] || 'client';
   if (!script.viewedIps) script.viewedIps = {};
-  const lastViewTime = script.viewedIps[clientIp] || 0;
-  // Count view once every 5 minutes per IP
-  if (Date.now() - lastViewTime > 5 * 60 * 1000) {
+  const viewerKey = (req.user ? `u_${req.user.id}` : `ip_${clientIp}`);
+  const lastViewTime = script.viewedIps[viewerKey] || 0;
+  if (Date.now() - lastViewTime > 30 * 1000) {
     script.views = (script.views || 0) + 1;
-    script.viewedIps[clientIp] = Date.now();
+    script.viewedIps[viewerKey] = Date.now();
     saveDB();
   }
 
@@ -779,9 +799,25 @@ app.post('/api/scripts', requireAuth, (req, res) => {
   });
 });
 
+// Ping / Register Real Script View
+app.post('/api/scripts/:id/view', (req, res) => {
+  const script = resolveScript(req.params.id, req.body.script);
+  if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || 'client';
+  if (!script.viewedIps) script.viewedIps = {};
+  const viewerKey = (req.user ? `u_${req.user.id}` : `ip_${clientIp}`);
+  const lastViewTime = script.viewedIps[viewerKey] || 0;
+  if (Date.now() - lastViewTime > 30 * 1000) {
+    script.views = (script.views || 0) + 1;
+    script.viewedIps[viewerKey] = Date.now();
+    saveDB();
+  }
+  res.json({ views: script.views || 1 });
+});
+
 // Toggle Like (Real DB Like tied to User Account)
 app.post('/api/scripts/:id/like', requireAuth, (req, res) => {
-  const script = db.scripts.find(s => s.id === req.params.id);
+  const script = resolveScript(req.params.id, req.body.script);
   if (!script) {
     return res.status(404).json({ error: 'Скрипт не найден' });
   }
@@ -810,7 +846,7 @@ app.post('/api/scripts/:id/like', requireAuth, (req, res) => {
 
 // Rate Script (1 - 5 stars ⭐)
 app.post('/api/scripts/:id/rate', requireAuth, (req, res) => {
-  const script = db.scripts.find(s => s.id === req.params.id);
+  const script = resolveScript(req.params.id, req.body.script);
   if (!script) {
     return res.status(404).json({ error: 'Скрипт не найден' });
   }
@@ -865,7 +901,7 @@ app.post('/api/scripts/:id/rate', requireAuth, (req, res) => {
 
 // Post Comment (Real DB Comment)
 app.post('/api/scripts/:id/comments', requireAuth, (req, res) => {
-  const script = db.scripts.find(s => s.id === req.params.id);
+  const script = resolveScript(req.params.id, req.body.script);
   if (!script) {
     return res.status(404).json({ error: 'Скрипт не найден' });
   }

@@ -283,28 +283,50 @@ module.exports = async function handler(req, res) {
       return res.json({ scripts: result });
     }
 
+    async function resolveScript(targetId, fallbackScript = null) {
+      if (!targetId) return null;
+      const cleanId = decodeURIComponent(String(targetId).trim());
+      let s = (db.scripts || []).find(x => String(x.id).trim() === cleanId);
+      if (!s) {
+        const initial = getInitialDB();
+        const seedScript = (initial.scripts || []).find(x => String(x.id).trim() === cleanId);
+        if (seedScript) {
+          s = JSON.parse(JSON.stringify(seedScript));
+          if (!db.scripts) db.scripts = [];
+          db.scripts.unshift(s);
+          await saveDB(kv);
+        }
+      }
+      if (!s && fallbackScript) {
+        s = {
+          ...fallbackScript,
+          id: cleanId,
+          likes: Array.isArray(fallbackScript.likes) ? fallbackScript.likes : [],
+          ratings: Array.isArray(fallbackScript.ratings) ? fallbackScript.ratings : [],
+          comments: Array.isArray(fallbackScript.comments) ? fallbackScript.comments : [],
+          views: typeof fallbackScript.views === 'number' ? fallbackScript.views : 1
+        };
+        if (!db.scripts) db.scripts = [];
+        db.scripts.unshift(s);
+        await saveDB(kv);
+      }
+      return s;
+    }
+
     // GET /api/scripts/:id
     const scriptGetMatch = path.match(/^\/api\/scripts\/([^/]+)$/);
     if (scriptGetMatch && method === 'GET') {
       const targetId = decodeURIComponent(String(scriptGetMatch[1] || '').trim());
-      let script = db.scripts.find(s => String(s.id).trim() === targetId);
-      if (!script) {
-        // Fallback to seedData
-        const initial = getInitialDB();
-        const seedScript = (initial.scripts || []).find(s => String(s.id).trim() === targetId);
-        if (seedScript) {
-          script = seedScript;
-          db.scripts.unshift(script);
-          await saveDB(kv);
-        }
-      }
+      let script = await resolveScript(targetId);
       if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
+      
+      // Real View count tracker (30 seconds debounce per user or IP)
       if (!script.viewedIps) script.viewedIps = {};
-      const ip = clientIp;
-      const last = script.viewedIps[ip] || 0;
-      if (Date.now() - last > 5 * 60 * 1000) {
+      const viewerKey = (req.user ? `u_${req.user.id}` : `ip_${clientIp}`);
+      const last = script.viewedIps[viewerKey] || 0;
+      if (Date.now() - last > 30 * 1000) {
         script.views = (script.views || 0) + 1;
-        script.viewedIps[ip] = Date.now();
+        script.viewedIps[viewerKey] = Date.now();
         await saveDB(kv);
       }
       const uid = req.user ? req.user.id : null;
@@ -320,6 +342,23 @@ module.exports = async function handler(req, res) {
           userRating: ur ? ur.rating : null
         }
       });
+    }
+
+    // POST /api/scripts/:id/view (Real View counter ping)
+    const scriptViewMatch = path.match(/^\/api\/scripts\/([^/]+)\/view$/);
+    if (scriptViewMatch && method === 'POST') {
+      const targetId = decodeURIComponent(String(scriptViewMatch[1] || '').trim());
+      let script = await resolveScript(targetId, req.body.script);
+      if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
+      if (!script.viewedIps) script.viewedIps = {};
+      const viewerKey = (req.user ? `u_${req.user.id}` : `ip_${clientIp}`);
+      const last = script.viewedIps[viewerKey] || 0;
+      if (Date.now() - last > 30 * 1000) {
+        script.views = (script.views || 0) + 1;
+        script.viewedIps[viewerKey] = Date.now();
+        await saveDB(kv);
+      }
+      return res.json({ views: script.views || 1 });
     }
 
     // POST /api/scripts
@@ -534,23 +573,26 @@ module.exports = async function handler(req, res) {
     const likeMatch = path.match(/^\/api\/scripts\/([^/]+)\/like$/);
     if (likeMatch && method === 'POST') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-      const script = db.scripts.find(s => s.id === likeMatch[1]);
-      if (!script) return res.status(404).json({ error: 'Script not found' });
+      const targetId = decodeURIComponent(String(likeMatch[1] || '').trim());
+      const script = await resolveScript(targetId, req.body.script);
+      if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
       if (!script.likes) script.likes = [];
-      const idx = script.likes.indexOf(req.user.id);
+      const uid = req.user.id;
+      const idx = script.likes.indexOf(uid);
       let isLiked = false;
-      if (idx === -1) { script.likes.push(req.user.id); isLiked = true; }
+      if (idx === -1) { script.likes.push(uid); isLiked = true; }
       else { script.likes.splice(idx, 1); }
       await saveDB(kv);
-      return res.json({ isLiked, likesCount: script.likes.length, message: isLiked ? 'Liked!' : 'Unliked' });
+      return res.json({ isLiked, likesCount: script.likes.length, message: isLiked ? 'Лайк поставлен!' : 'Лайк убран' });
     }
 
     // POST /api/scripts/:id/rate
     const rateMatch = path.match(/^\/api\/scripts\/([^/]+)\/rate$/);
     if (rateMatch && method === 'POST') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-      const script = db.scripts.find(s => s.id === rateMatch[1]);
-      if (!script) return res.status(404).json({ error: 'Script not found' });
+      const targetId = decodeURIComponent(String(rateMatch[1] || '').trim());
+      const script = await resolveScript(targetId, req.body.script);
+      if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
       let rating = parseInt(req.body.rating, 10);
       if (isNaN(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be 1-5' });
       if (!script.ratings) script.ratings = [];
@@ -576,8 +618,9 @@ module.exports = async function handler(req, res) {
     const commentMatch = path.match(/^\/api\/scripts\/([^/]+)\/comments$/);
     if (commentMatch && method === 'POST') {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-      const script = db.scripts.find(s => s.id === commentMatch[1]);
-      if (!script) return res.status(404).json({ error: 'Script not found' });
+      const targetId = decodeURIComponent(String(commentMatch[1] || '').trim());
+      const script = await resolveScript(targetId, req.body.script);
+      if (!script) return res.status(404).json({ error: 'Скрипт не найден' });
       const { text } = req.body;
       if (!text || !text.trim()) return res.status(400).json({ error: 'Comment text required' });
       const newComment = {

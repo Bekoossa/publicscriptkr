@@ -1575,6 +1575,34 @@ async function openScriptDetail(scriptId, fallbackScript = null) {
     renderScriptDetailModal(script);
   }
 
+  function updateScriptViewsEverywhere(id, viewsCount) {
+    if (typeof viewsCount !== 'number') return;
+    const countEl = document.getElementById('detailViewsCount');
+    if (countEl && State.activeModalScript && State.activeModalScript.id === id) {
+      countEl.textContent = viewsCount;
+    }
+    const feedViewSpans = document.querySelectorAll(`.script-card[data-id="${id}"] .card-views-stat span`);
+    feedViewSpans.forEach(el => { el.textContent = viewsCount; });
+  }
+
+  // Optimistically register real view locally if opened
+  if (script) {
+    const currentViews = (script.views || 0) + 1;
+    updateScriptViewsEverywhere(script.id, currentViews);
+  }
+
+  // Ping real view registration on server
+  api(`/api/scripts/${encodeURIComponent(scriptId)}/view`, {
+    method: 'POST',
+    body: JSON.stringify({ script }),
+    silentFail: true
+  }).then(viewData => {
+    if (viewData && typeof viewData.views === 'number') {
+      if (script) script.views = viewData.views;
+      updateScriptViewsEverywhere(scriptId, viewData.views);
+    }
+  }).catch(() => {});
+
   // 3. Revalidate in background from server
   try {
     const data = await api(`/api/scripts/${encodeURIComponent(scriptId)}`, { silentFail: !!script });
@@ -1583,6 +1611,7 @@ async function openScriptDetail(scriptId, fallbackScript = null) {
       State.scriptsCache.set(data.script.id, data.script);
       saveLocalPublishedScript(data.script);
       renderScriptDetailModal(data.script);
+      updateScriptViewsEverywhere(data.script.id, data.script.views);
     }
     updatePlatformStats();
   } catch (err) {
@@ -2314,7 +2343,7 @@ function renderComments(comments, authorId) {
   `).join('');
 }
 
-// Like script
+// Like script with 100% Instant Optimistic UI + Server Rehydration
 async function handleLikeScript(scriptId) {
   if (!State.currentUser) {
     openAuthModal('login');
@@ -2322,21 +2351,110 @@ async function handleLikeScript(scriptId) {
     return;
   }
 
-  try {
-    const data = await api(`/api/scripts/${scriptId}/like`, { method: 'POST' });
-    showToast(data.message, data.isLiked ? 'success' : 'info');
+  // 1. Resolve script object
+  const script = (State.scriptsCache && State.scriptsCache.get(scriptId)) ||
+                 (getLocalPublishedScripts().find(s => s.id === scriptId)) ||
+                 (State.activeModalScript && State.activeModalScript.id === scriptId ? State.activeModalScript : null);
 
-    // If detail modal is open, update its state
-    if (State.activeModalScript && State.activeModalScript.id === scriptId) {
-      const likeBtn = document.getElementById('detailLikeBtn');
-      likeBtn.className = `engagement-badge like-action-btn ${data.isLiked ? 'liked' : ''}`;
-      likeBtn.querySelector('i').className = `${data.isLiked ? 'fa-solid' : 'fa-regular'} fa-heart`;
-      document.getElementById('detailLikesCount').textContent = data.likesCount;
+  const userId = State.currentUser.id || State.currentUser.username;
+  let currentIsLiked = false;
+  let currentLikesCount = 0;
+
+  if (script) {
+    if (typeof script.isLiked === 'boolean') {
+      currentIsLiked = script.isLiked;
+    } else if (Array.isArray(script.likes)) {
+      currentIsLiked = script.likes.includes(userId);
     }
+    currentLikesCount = typeof script.likesCount === 'number' ? script.likesCount : (Array.isArray(script.likes) ? script.likes.length : 0);
+  } else {
+    const existingCardBtn = document.querySelector(`.card-like-btn[data-id="${scriptId}"]`);
+    if (existingCardBtn) {
+      currentIsLiked = existingCardBtn.classList.contains('liked');
+      currentLikesCount = parseInt(existingCardBtn.querySelector('span')?.textContent || '0', 10);
+    }
+  }
 
-    loadScriptsFeed();
+  const nextIsLiked = !currentIsLiked;
+  const nextLikesCount = Math.max(0, currentLikesCount + (nextIsLiked ? 1 : -1));
+
+  // 2. Instant UI update helper
+  function applyLikeState(isLiked, count, triggerPulse = true) {
+    // A. Update all matching card buttons in the grid
+    const cardBtns = document.querySelectorAll(`.card-like-btn[data-id="${scriptId}"]`);
+    cardBtns.forEach(btn => {
+      btn.classList.toggle('liked', isLiked);
+      const icon = btn.querySelector('i');
+      if (icon) {
+        icon.className = `${isLiked ? 'fa-solid' : 'fa-regular'} fa-heart`;
+      }
+      const span = btn.querySelector('span');
+      if (span) span.textContent = count;
+      if (triggerPulse) {
+        btn.classList.remove('like-pulse');
+        void btn.offsetWidth;
+        btn.classList.add('like-pulse');
+      }
+    });
+
+    // B. Update detail modal if active
+    if (State.activeModalScript && State.activeModalScript.id === scriptId) {
+      const detailLikeBtn = document.getElementById('detailLikeBtn');
+      if (detailLikeBtn) {
+        detailLikeBtn.className = `engagement-badge like-action-btn ${isLiked ? 'liked' : ''}`;
+        const icon = detailLikeBtn.querySelector('i');
+        if (icon) icon.className = `${isLiked ? 'fa-solid' : 'fa-regular'} fa-heart`;
+        if (triggerPulse) {
+          detailLikeBtn.classList.remove('like-pulse');
+          void detailLikeBtn.offsetWidth;
+          detailLikeBtn.classList.add('like-pulse');
+        }
+      }
+      const detailLikesCount = document.getElementById('detailLikesCount');
+      if (detailLikesCount) detailLikesCount.textContent = count;
+    }
+  }
+
+  // INSTANT optimistic update (0ms delay!)
+  applyLikeState(nextIsLiked, nextLikesCount, true);
+
+  // Update memory cache immediately
+  if (script) {
+    script.isLiked = nextIsLiked;
+    script.likesCount = nextLikesCount;
+    if (!script.likes) script.likes = [];
+    const idx = script.likes.indexOf(userId);
+    if (nextIsLiked && idx === -1) script.likes.push(userId);
+    else if (!nextIsLiked && idx !== -1) script.likes.splice(idx, 1);
+    if (!State.scriptsCache) State.scriptsCache = new Map();
+    State.scriptsCache.set(scriptId, script);
+    saveLocalPublishedScript(script);
+  }
+
+  try {
+    const data = await api(`/api/scripts/${encodeURIComponent(scriptId)}/like`, {
+      method: 'POST',
+      body: JSON.stringify({ script })
+    });
+
+    if (data && typeof data.likesCount === 'number') {
+      applyLikeState(data.isLiked, data.likesCount, false);
+      if (script) {
+        script.isLiked = data.isLiked;
+        script.likesCount = data.likesCount;
+        State.scriptsCache.set(scriptId, script);
+        saveLocalPublishedScript(script);
+      }
+    }
+    showToast(data.message, data.isLiked ? 'success' : 'info');
     updatePlatformStats();
   } catch (err) {
+    // Rollback optimistic state if request failed
+    applyLikeState(currentIsLiked, currentLikesCount, false);
+    if (script) {
+      script.isLiked = currentIsLiked;
+      script.likesCount = currentLikesCount;
+    }
     showToast(err.message || 'Ошибка лайка', 'error');
   }
 }
