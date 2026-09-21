@@ -891,10 +891,18 @@ module.exports = async function handler(req, res) {
     if (badgeMatch && method === 'PUT') {
       if (!req.user || !isModerator(req.user)) return res.status(403).json({ error: 'Moderator access required' });
       const { badge } = req.body;
-      if (!badge || typeof badge !== 'string') return res.status(400).json({ error: 'Badge required' });
+      if (typeof badge !== 'string') return res.status(400).json({ error: 'Badge required' });
       const user = db.users.find(u => u.id === badgeMatch[1] || (u.username || '').toLowerCase() === badgeMatch[1].toLowerCase());
       if (!user) return res.status(404).json({ error: 'User not found' });
-      user.badge = badge.trim().substring(0, 30).toUpperCase();
+      
+      const cleanBadge = badge.trim().substring(0, 30).toUpperCase();
+      if (!cleanBadge) {
+        user.badge = (user.username || '').toLowerCase() === 'kerryrbq' ? 'ADMIN' : 'MEMBER';
+        await saveDB(kv);
+        return res.json({ message: 'Badge reset', badge: '' });
+      }
+
+      user.badge = cleanBadge;
       if (!db.notifications) db.notifications = [];
       db.notifications.unshift({ id: 'n-' + Date.now(), userId: user.id, title: 'New badge! 🏷️', message: `Admin assigned "${user.badge}"`, status: 'verified', isRead: false, createdAt: Date.now() });
       await saveDB(kv);

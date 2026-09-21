@@ -1387,7 +1387,7 @@ app.put('/api/users/:id/badge', requireAuth, requireModerator, (req, res) => {
   const targetId = req.params.id;
   const { badge } = req.body;
 
-  if (!badge || typeof badge !== 'string') {
+  if (typeof badge !== 'string') {
     return res.status(400).json({ error: 'Укажите название тега / ранга' });
   }
 
@@ -1395,6 +1395,12 @@ app.put('/api/users/:id/badge', requireAuth, requireModerator, (req, res) => {
   const user = db.users.find(u => u.id === targetId || u.username.toLowerCase() === targetId.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: 'Пользователь не найден' });
+  }
+
+  if (!cleanBadge) {
+    user.badge = (user.username || '').toLowerCase() === 'kerryrbq' ? 'ADMIN' : 'MEMBER';
+    saveDB();
+    return res.json({ message: 'Тег успешно сброшен', badge: '' });
   }
 
   user.badge = cleanBadge;

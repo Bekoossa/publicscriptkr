@@ -4003,7 +4003,15 @@ async function handleAdminAssignBadge(customValue = null) {
   }
   if (!currentViewingProfileId) return;
 
-  const inputVal = customValue !== null ? customValue : document.getElementById('adminBadgeCustomInput').value.trim();
+  const isReset = customValue === '';
+  const inputEl = document.getElementById('adminBadgeCustomInput');
+  const inputVal = customValue !== null ? customValue : (inputEl ? inputEl.value.trim() : '');
+
+  if (!isReset && !inputVal) {
+    showToast('Введите название тега или выберите готовый шаблон', 'warning');
+    if (inputEl) inputEl.focus();
+    return;
+  }
 
   try {
     const res = await api(`/api/users/${currentViewingProfileId}/badge`, {
@@ -4011,7 +4019,7 @@ async function handleAdminAssignBadge(customValue = null) {
       body: JSON.stringify({ badge: inputVal })
     });
 
-    showToast(`Тег успешно выдан: "${res.badge || 'Сброшен'}" 🏷️`, 'success');
+    showToast(`Тег успешно ${res.badge ? `выдан: "${res.badge}"` : 'сброшен'} 🏷️`, 'success');
     await openPublicProfile(currentViewingProfileId);
     loadScriptsFeed();
   } catch (err) {
